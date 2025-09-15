@@ -1,0 +1,152 @@
+/* General Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Main Layout */
+body {
+  background-color: #1e293b; /* Dark blue background */
+  color: white;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 240px;
+  background-color: #334155;
+  height: 100vh;
+  padding: 20px;
+  position: fixed;
+  top: 0;
+  left: 0;
+}
+
+.sidebar h2 {
+  font-size: 22px;
+  margin-bottom: 30px;
+  font-weight: bold;
+}
+
+.sidebar ul {
+  list-style: none;
+}
+
+.sidebar li {
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+}
+
+.sidebar li:hover,
+.sidebar li.active {
+  background-color: #475569;
+}
+
+/* Dashboard Main */
+.main {
+  margin-left: 260px;
+  padding: 20px;
+}
+
+/* Card Containers */
+.card {
+  background-color: #334155;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+  box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+/* Item Tracker Table */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 10px;
+  text-align: left;
+  font-size: 14px;
+}
+
+.table th {
+  color: #cbd5e1;
+}
+
+.table td {
+  color: #e2e8f0;
+}
+
+.status-delivered {
+  color: #16a34a;
+  font-weight: bold;
+}
+
+.status-progress {
+  color: #ef4444;
+  font-weight: bold;
+}
+
+/* Chart Containers */
+.chart-box {
+  background-color: #334155;
+  border-radius: 12px;
+  padding: 20px;
+  margin: 10px;
+  flex: 1;
+}
+
+/* Info Boxes */
+.info-box {
+  background-color: #334155;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  font-size: 18px;
+  margin: 10px;
+}
+
+/* Download Button */
+.download-btn {
+  background-color: #22c55e;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: bold;
+  color: black;
+  transition: 0.3s;
+}
+
+.download-btn:hover {
+  background-color: #16a34a;
+  color: white;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  color: #ffffff;
+  text-decoration: none;
+  border: none;
+  outline: none;
+}
+
+.sidebar-link:hover {
+  background-color: #0F172A;
+}
+
+.sidebar-link.active {
+  background-color: #0F172A;
+  font-weight: 600;
+}
