@@ -1,7 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Download, Plus, Tag, Eye
 } from "lucide-react";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 import AddPurchaseForm from "./components/AddPurchaseForm.js";
 import EditInboundForm from "./components/EditInboundForm.js";
 import EditOutboundForm from "./components/EditOutboundForm.js";
@@ -12,6 +15,8 @@ import EditInvoiceForm from "./components/EditInvoiceForm.js";
 import Login from "./components/Login.js";
 import RestrictedPage from "./components/RestrictedPage.js";
 import Sidebar from "./components/Sidebar.js";
+import { supabase } from "./components/supabaseClient";
+
 
 
 import {
@@ -93,14 +98,195 @@ const COLORS = [
 
 
 function Dashboard() {
+  const [tracker, setTracker] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [totalOrders, setTotalOrders] = useState(0);
+  const [retailerCount, setRetailerCount] = useState(0);
+
+  useEffect(() => {
+    const fetchTracker = async () => {
+      const { data, error } = await supabase
+        .from("warehouse_operations")
+        .select(`
+          id,
+          item,
+          received_quantity,
+          status,
+          retailer:retailer_id (
+            id,
+            address
+          )
+        `)
+        .eq("operation_type", "Outbound"); // <-- filter here
+
+      console.log("Data:", data);
+      console.log("Error:", error);
+
+      if (error) {
+        console.error("Error fetching tracker:", error.message);
+        return;
+      }
+
+      const formatted = (data || []).map((row) => ({
+        retailerId: row.retailer?.id ?? "",
+        address: row.retailer?.address ?? "",
+        item: row.item ?? "",
+        quantity: row.received_quantity ?? 0,
+        status: row.status ?? "Pending",
+      }));
+
+      setTracker(formatted);
+    };
+
+    fetchTracker();
+  }, []);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      const { data, error } = await supabase
+        .from("warehouse_operations")
+        .select("category");
+
+      if (error) {
+        console.error("Error fetching categories:", error.message);
+        return;
+      }
+
+      // Aggregate counts per category
+      const counts = {};
+      data.forEach((row) => {
+        const cat = row.category || "Uncategorized";
+        counts[cat] = (counts[cat] || 0) + 1;
+      });
+
+      const formattedCategories = Object.entries(counts).map(([name, value]) => ({
+        name,
+        value,
+      }));
+
+      setCategories(formattedCategories);
+    };
+
+    fetchCategories();
+  }, []);
+
+  useEffect(() => {
+    const fetchTotalOrders = async () => {
+      const { data, error } = await supabase
+        .from("warehouse_operations")
+        .select("ordered_quantity");
+
+      if (error) {
+        console.error("Error fetching ordered quantities:", error.message);
+        return;
+      }
+
+      const total = data.reduce((sum, row) => sum + (row.ordered_quantity || 0), 0);
+      setTotalOrders(total);
+    };
+
+    fetchTotalOrders();
+  }, []);
+
+  useEffect(() => {
+    const fetchRetailerCount = async () => {
+      const { count, error } = await supabase
+        .from("retailer_supplier")
+        .select("id", { count: "exact", head: true })
+        .eq("type", "retailer");
+
+      if (error) {
+        console.error("Error fetching retailer count:", error);
+      } else {
+        setRetailerCount(count || 0);
+      }
+    };
+
+    fetchRetailerCount();
+  }, []);
+
+  const chartData = [
+    { name: "Item A", value: 40 },
+    { name: "Item B", value: 30 },
+    { name: "Item C", value: 20 },
+  ];
+  const customersMost = [
+    { name: "Retailer A", value: 100 },
+    { name: "Retailer B", value: 80 },
+  ];
+  const itemsLeast = [
+    { name: "Item X", value: 5 },
+    { name: "Item Y", value: 3 },
+  ];
+  const customersLeast = [
+    { name: "Retailer Z", value: 2 },
+    { name: "Retailer W", value: 1 },
+  ];
+
+  // ======= PDF Download Function =======
+const handleDownloadReport = () => {
+  const doc = new jsPDF();
+
+  doc.setFontSize(18);
+  doc.text("Dashboard Report", 14, 22);
+
+  doc.setFontSize(12);
+  doc.text(`Total Number of Orders: ${totalOrders}`, 14, 32);
+  doc.text(`Total Number of Customers: ${retailerCount}`, 14, 40);
+
+  if (categories.length > 0) {
+    doc.text("Category Distribution:", 14, 50);
+
+    autoTable(doc, {
+      startY: 55,
+      head: [["Category", "Count"]],
+      body: categories.map(({ name, value }) => [name, value]),
+      theme: "striped",
+      styles: { fontSize: 10 },
+      margin: { left: 14, right: 14 },
+    });
+  }
+
+  if (tracker.length > 0) {
+    const startY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 80;
+    doc.text("Item Tracker:", 14, startY);
+
+    autoTable(doc, {
+      startY: startY + 5,
+      head: [["Retailer ID", "Address", "Item", "Quantity", "Status"]],
+      body: tracker.map(({ retailerId, address, item, quantity, status }) => [
+        retailerId,
+        address,
+        item,
+        quantity,
+        status,
+      ]),
+      theme: "striped",
+      styles: { fontSize: 8 },
+      margin: { left: 14, right: 14 },
+      columnStyles: {
+        0: { cellWidth: 25 },
+        1: { cellWidth: 40 },
+        2: { cellWidth: 30 },
+        3: { cellWidth: 20 },
+        4: { cellWidth: 25 },
+      },
+    });
+  }
+
+  doc.save("dashboard_report.pdf");
+};
+
   return (
     <div>
-      <h2 style={{
-        fontSize: "1.5rem",
-        fontWeight: "bold",
-        marginTop: "2rem",   
-        marginBottom: "0.5rem"
-      }}>
+      <h2
+        style={{
+          fontSize: "1.5rem",
+          fontWeight: "bold",
+          marginTop: "2rem",
+          marginBottom: "0.5rem",
+        }}
+      >
         Dashboard
       </h2>
 
@@ -122,7 +308,7 @@ function Dashboard() {
             maxHeight: "500px",
             overflowY: "auto",
             width: "770px",
-            border: "2px solid #334155", 
+            border: "2px solid #334155",
             boxSizing: "border-box",
           }}
         >
@@ -156,193 +342,178 @@ function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              <tr style={{ borderTop: "3px solid #ffffffff" }}>
-                <td style={{ padding: "0.75rem 0" }}>Label Item</td>
-                <td>Label Item</td>
-                <td>Label Item</td>
-                <td>Label Item</td>
-                <td>
-                  <span
-                    style={{
-                      backgroundColor: "#22c55e",
-                      color: "#000000ff",
-                      padding: "0.25rem 0.5rem",
-                      borderRadius: "0.25rem",
-                      fontSize: "0.75rem",
-                      fontWeight: "600",
-                    }}
-                  >
-                    Delivered
-                  </span>
-                </td>
-              </tr>
-              <tr style={{ borderTop: "3px solid #ffffffff" }}>
-                <td style={{ padding: "0.75rem 0" }}>Label Item</td>
-                <td>Label Item</td>
-                <td>Label Item</td>
-                <td>Label Item</td>
-                <td>
-                  <span
-                    style={{
-                      backgroundColor: "#f59e0b",
-                      color: "#000000ff",
-                      padding: "0.25rem 0.5rem",
-                      borderRadius: "0.25rem",
-                      fontSize: "0.75rem",
-                      fontWeight: "600",
-                    }}
-                  >
-                    In Transit
-                  </span>
-                </td>
-              </tr>
-              <tr style={{ borderTop: "3px solid #ffffffff" }}>
-                <td style={{ padding: "0.75rem 0" }}>Label Item</td>
-                <td>Label Item</td>
-                <td>Label Item</td>
-                <td>Label Item</td>
-                <td>
-                  <span
-                    style={{
-                      backgroundColor: "#ef4444",
-                      color: "#000000ff",
-                      padding: "0.25rem 0.5rem",
-                      borderRadius: "0.25rem",
-                      fontSize: "0.75rem",
-                      fontWeight: "600",
-                    }}
-                  >
-                    Packed
-                  </span>
-                </td>
-              </tr>
+              {tracker.length > 0 ? (
+                tracker.map((row, idx) => (
+                  <tr key={idx} style={{ borderTop: "3px solid #ffffffff" }}>
+                    <td style={{ padding: "0.75rem 0" }}>{row.retailerId}</td>
+                    <td style={{ padding: "0.75rem 0" }}>{row.address}</td>
+                    <td>{row.item}</td>
+                    <td>{row.quantity}</td>
+                    <td>
+                      <span
+                        style={{
+                          backgroundColor:
+                            row.status === "Delivered"
+                              ? "#22c55e"
+                              : row.status === "In Transit"
+                              ? "#f59e0b"
+                              : row.status === "Packed"
+                              ? "#ef4444"
+                              : "#9ca3af",
+                          color: "#000000ff",
+                          padding: "0.25rem 0.5rem",
+                          borderRadius: "0.25rem",
+                          fontSize: "0.75rem",
+                          fontWeight: "600",
+                        }}
+                      >
+                        {row.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="4" style={{ textAlign: "center", padding: "1rem" }}>
+                    No records found
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
 
-
-        {/* Category Distribution + Stats */}
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-          {/* Category Distribution */}
-          <div
-            style={{
-              backgroundColor: "#363B5E",
-              padding: "1rem",
-              borderRadius: "0.75rem",
-              maxHeight: "350px",
-              overflowY: "auto",
-              width: "740px",
-            }}
-          >
-            <h3 style={{ fontSize: "1.125rem", fontWeight: "600", marginBottom: "0rem" }}>
-              Category
-            </h3>
+      {/* Category Distribution */}
+      <div
+        style={{
+          backgroundColor: "#363B5E",
+          padding: "1rem",
+          borderRadius: "0.75rem",
+          maxHeight: "350px",
+          overflowY: "auto",
+          width: "740px",
+        }}
+      >
+        <h3 style={{ fontSize: "1.125rem", fontWeight: "600", marginBottom: "0rem" }}>
+          Category
+        </h3>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-              {/* Pie Chart */}
-              <div style={{ width: 300, height: 250 }}>
-                <ResponsiveContainer>
-                  <PieChart>
-                    <Pie
-                      data={categories}
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={90}
-                      dataKey="value"
-                      label
-                    >
-                      {categories.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Category List */}
-              <ul style={{ fontSize: "0.9rem", lineHeight: "1.75rem", minWidth: "300px" }}>
-                {categories.map((cat, i) => (
-                  <li key={i} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        width: "12px",
-                        height: "12px",
-                        borderRadius: "50%", 
-                        backgroundColor: COLORS[i % COLORS.length],
-                      }}
-                    ></span>
-                    {cat.name} — {cat.value}
-                  </li>
-                ))}
-              </ul>
-            </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          {/* Pie Chart */}
+          <div style={{ width: 300, height: 250 }}>
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie
+                  data={categories}
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={90}
+                  dataKey="value"
+                  label
+                >
+                  {categories.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={COLORS[index % COLORS.length]}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
 
-
-          {/* Stats */}
-          <div
+          {/* Category List */}
+          <ul
             style={{
-              display: "flex",
-              gap: "1rem", 
+              fontSize: "0.9rem",
+              lineHeight: "1.75rem",
+              minWidth: "300px",
             }}
           >
-            <div
-              style={{
-                backgroundColor: "#363B5E",
-                padding: "1.5rem",
-                borderRadius: "0.75rem",
-                textAlign: "center",
-                height: "50px",
-                width: "200px", 
-              }}
-            >
-              <p style={{ fontSize: "2.3rem", fontWeight: "bold", margin: 0 }}>888</p>
-              <p style={{ fontSize: "0.90rem", fontWeight: "bold", margin: 0 }}>
-                Total Number of Orders
-              </p>
-            </div>
-
-            <div
-              style={{
-                backgroundColor: "#363B5E",
-                padding: "1.5rem",
-                borderRadius: "0.75rem",
-                textAlign: "center",
-                height: "50px",
-                width: "200px",
-              }}
-            >
-              <p style={{ fontSize: "2.3rem", fontWeight: "bold", margin: 0 }}>888</p>
-              <p style={{ fontSize: "0.90rem", fontWeight: "bold", margin: 0 }}>
-                Total Number of Customers
-              </p>
-            </div>
-
-            <div
-              style={{
-                backgroundColor: "#22C55E",
-                padding: "1.5rem",
-                borderRadius: "0.75rem",
-                textAlign: "center",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.5rem",
-                height: "50px",
-                width: "200px",
-              }}
-            >
-              <Download size={30} color="green" />
-              <p style={{ fontWeight: "600", margin: 0 }}>Download Report</p>
-            </div>
-          </div>
-
-
+            {categories.map((cat, i) => (
+              <li
+                key={i}
+                style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+              >
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: "12px",
+                    height: "12px",
+                    borderRadius: "50%",
+                    backgroundColor: COLORS[i % COLORS.length],
+                  }}
+                ></span>
+                {cat.name} — {cat.value}
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
+
+          {/* Total Orders and Retailers Count */}
+<div
+  style={{
+    display: "flex",
+    flexDirection: "row",
+    gap: 15,              // no gap between buttons
+    justifyContent: "flex-start",
+  }}
+>
+  <div
+    style={{
+      backgroundColor: "#363B5E",
+      padding: "1.5rem",
+      borderRadius: "0.75rem",
+      textAlign: "center",
+      cursor: "default",
+      width: "200px",
+    }}
+  >
+    <p style={{ fontWeight: "600", fontSize: "1.5rem", margin: 0 }}>
+      {totalOrders}
+    </p>
+    <p style={{ fontWeight: "600", margin: 0 }}>Total Number of Orders</p>
+  </div>
+  <div
+    style={{
+      backgroundColor: "#363B5E",
+      padding: "1.5rem",
+      borderRadius: "0.75rem",
+      textAlign: "center",
+      cursor: "default",
+      width: "200px",
+    }}
+  >
+    <p style={{ fontWeight: "600", fontSize: "1.5rem", margin: 0 }}>
+      {retailerCount}
+    </p>
+    <p style={{ fontWeight: "600", margin: 0 }}>Total Number of Customers</p>
+  </div>
+  {/* Download Report Button */}
+  <div
+    style={{
+      backgroundColor: "#22C55E",
+      padding: "1.5rem",
+      borderRadius: "0.75rem",
+      textAlign: "center",
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: "0.5rem",
+      width: "200px",
+    }}
+    onClick={handleDownloadReport}
+  >
+    <Download size={30} color="green" />
+    <p style={{ fontWeight: "600", margin: 0 }}>Download Report</p>
+  </div>
+</div>
+</div>
+</div>
 
       {/* Charts Grid */}
       <div
@@ -354,7 +525,14 @@ function Dashboard() {
         }}
       >
         {/* Most Ordered Items */}
-        <div style={{ backgroundColor: "#363B5E", padding: "1.5rem", borderRadius: "0.75rem", height: "250px" }}>
+        <div
+          style={{
+            backgroundColor: "#363B5E",
+            padding: "1.5rem",
+            borderRadius: "0.75rem",
+            height: "250px",
+          }}
+        >
           <h3 style={{ fontSize: "1.125rem", fontWeight: "600", marginBottom: "1rem" }}>
             Most Ordered Items
           </h3>
@@ -367,8 +545,19 @@ function Dashboard() {
                 <Tooltip />
                 <Bar dataKey="value">
                   {chartData.map((entry, index) => {
-                    const greenShades = ["#166534", "#15803d", "#16a34a", "#22c55e", "#4ade80"];
-                    return <Cell key={`cell-${index}`} fill={greenShades[index % greenShades.length]} />;
+                    const greenShades = [
+                      "#166534",
+                      "#15803d",
+                      "#16a34a",
+                      "#22c55e",
+                      "#4ade80",
+                    ];
+                    return (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={greenShades[index % greenShades.length]}
+                      />
+                    );
                   })}
                 </Bar>
               </BarChart>
@@ -377,7 +566,14 @@ function Dashboard() {
         </div>
 
         {/* Customers With Most Orders */}
-        <div style={{ backgroundColor: "#363B5E", padding: "1.5rem", borderRadius: "0.75rem", height: "250px" }}>
+        <div
+          style={{
+            backgroundColor: "#363B5E",
+            padding: "1.5rem",
+            borderRadius: "0.75rem",
+            height: "250px",
+          }}
+        >
           <h3 style={{ fontSize: "1.125rem", fontWeight: "600", marginBottom: "1rem" }}>
             Retailers With Most Orders (Yearly)
           </h3>
@@ -394,8 +590,19 @@ function Dashboard() {
                 <Tooltip />
                 <Bar dataKey="value">
                   {customersMost.map((entry, index) => {
-                    const greenShades = ["#166534", "#15803d", "#16a34a", "#22c55e", "#4ade80"];
-                    return <Cell key={`cell-${index}`} fill={greenShades[index % greenShades.length]} />;
+                    const greenShades = [
+                      "#166534",
+                      "#15803d",
+                      "#16a34a",
+                      "#22c55e",
+                      "#4ade80",
+                    ];
+                    return (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={greenShades[index % greenShades.length]}
+                      />
+                    );
                   })}
                 </Bar>
               </BarChart>
@@ -404,7 +611,14 @@ function Dashboard() {
         </div>
 
         {/* Least Ordered Items */}
-        <div style={{ backgroundColor: "#363B5E", padding: "1.5rem", borderRadius: "0.75rem", height: "250px" }}>
+        <div
+          style={{
+            backgroundColor: "#363B5E",
+            padding: "1.5rem",
+            borderRadius: "0.75rem",
+            height: "250px",
+          }}
+        >
           <h3 style={{ fontSize: "1.125rem", fontWeight: "600", marginBottom: "1rem" }}>
             Least Orders Items (Yearly)
           </h3>
@@ -418,7 +632,10 @@ function Dashboard() {
                 <Bar dataKey="value">
                   {itemsLeast.map((entry, index) => {
                     const redShades = ["#ef4444", "#dc2626", "#b91c1c", "#991b1b"];
-                    const color = index < redShades.length ? redShades[index] : redShades[redShades.length - 1];
+                    const color =
+                      index < redShades.length
+                        ? redShades[index]
+                        : redShades[redShades.length - 1];
                     return <Cell key={`cell-${index}`} fill={color} />;
                   })}
                 </Bar>
@@ -428,7 +645,14 @@ function Dashboard() {
         </div>
 
         {/* Customers With Least Orders */}
-        <div style={{ backgroundColor: "#363B5E", padding: "1.5rem", borderRadius: "0.75rem", height: "250px" }}>
+        <div
+          style={{
+            backgroundColor: "#363B5E",
+            padding: "1.5rem",
+            borderRadius: "0.75rem",
+            height: "250px",
+          }}
+        >
           <h3 style={{ fontSize: "1.125rem", fontWeight: "600", marginBottom: "1rem" }}>
             Retailers With Least Orders (Yearly)
           </h3>
@@ -442,7 +666,10 @@ function Dashboard() {
                 <Bar dataKey="value">
                   {customersLeast.map((entry, index) => {
                     const redShades = ["#ef4444", "#dc2626", "#b91c1c", "#991b1b"];
-                    const color = index < redShades.length ? redShades[index] : redShades[redShades.length - 1];
+                    const color =
+                      index < redShades.length
+                        ? redShades[index]
+                        : redShades[redShades.length - 1];
                     return <Cell key={`cell-${index}`} fill={color} />;
                   })}
                 </Bar>
@@ -456,8 +683,37 @@ function Dashboard() {
 }
 
 
+
 function RetailerRecords() {
   const [activeTab, setActiveTab] = useState("retailers");
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // fetch data when tab changes
+  useEffect(() => {
+    fetchRecords();
+  }, [activeTab]);
+
+  const fetchRecords = async () => {
+    setLoading(true);
+
+    const type = activeTab === "retailers" ? "retailer" : "supplier";
+
+    const { data, error } = await supabase
+      .from("retailer_supplier")
+      .select("*")
+      .eq("type", type)
+      .order("id", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching records:", error.message);
+      setRecords([]);
+    } else {
+      setRecords(data || []);
+    }
+
+    setLoading(false);
+  };
 
   return (
     <div style={{ padding: "1rem" }}>
@@ -523,7 +779,7 @@ function RetailerRecords() {
                 <th style={{ padding: "0.5rem 0" }}>Contact Number</th>
               </tr>
             ) : (
-              <tr style={{ color: "#94A3B8" }}>
+              <tr style={{ color: "#ffffffff" }}>
                 <th style={{ padding: "0.5rem 0" }}>Supplier ID</th>
                 <th style={{ padding: "0.5rem 0" }}>Supplier Name</th>
                 <th style={{ padding: "0.5rem 0" }}>Address</th>
@@ -533,15 +789,32 @@ function RetailerRecords() {
             )}
           </thead>
           <tbody>
-            {[...Array(8)].map((_, i) => (
-              <tr key={i} style={{ borderTop: "2.5px solid #ffffffff", color: "#FFFFFF" }}>
-                <td style={{ padding: "2rem 0" }}>Label Item</td>
-                <td>Label Item</td>
-                <td>Label Item</td>
-                <td>Label Item</td>
-                <td>Label Item</td>
+            {loading ? (
+              <tr>
+                <td colSpan="5" style={{ color: "#fff", textAlign: "center", padding: "1rem" }}>
+                  Loading...
+                </td>
               </tr>
-            ))}
+            ) : records.length === 0 ? (
+              <tr>
+                <td colSpan="5" style={{ color: "#fff", textAlign: "center", padding: "1rem" }}>
+                  No {activeTab} found.
+                </td>
+              </tr>
+            ) : (
+              records.map((rec) => (
+                <tr
+                  key={rec.id}
+                  style={{ borderTop: "2.5px solid #ffffffff", color: "#FFFFFF" }}
+                >
+                  <td style={{ padding: "1rem 0" }}>{rec.id}</td>
+                  <td>{rec.name}</td>
+                  <td>{rec.address}</td>
+                  <td>{rec.email}</td>
+                  <td>{rec.contact_number}</td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -551,97 +824,97 @@ function RetailerRecords() {
 
 
 function Purchasing() {
+  const [orders, setOrders] = useState([]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteIndex, setDeleteIndex] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [editingOrder, setEditingOrder] = useState(null);
-  const [orders, setOrders] = useState([
-    {
-      poNumber: "PO-001",
-      supplierId: "SUP-123",
-      item: "Laptop",
-      category: "Electronics",
-      quantity: 5,
-      total: "$5000",
-      date: "2025-09-08",
-      receivingStatus: "Received",
-      paymentStatus: "Paid",
-    },
-    {
-      poNumber: "PO-002",
-      supplierId: "SUP-123",
-      item: "Laptop",
-      category: "Electronics",
-      quantity: 5,
-      total: "$5000",
-      date: "2025-09-08",
-      receivingStatus: "Received",
-      paymentStatus: "Paid",
-    },
-    {
-      poNumber: "PO-003",
-      supplierId: "SUP-123",
-      item: "Laptop",
-      category: "Electronics",
-      quantity: 5,
-      total: "$5000",
-      date: "2025-09-08",
-      receivingStatus: "Received",
-      paymentStatus: "Paid",
-    },
-  ]);
 
-  
+  // ✅ Fetch orders from Supabase
+  const fetchOrders = async () => {
+    const { data, error } = await supabase
+      .from("purchasing")
+      .select("*")
+      .order("date", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching orders:", error.message);
+    } else {
+      setOrders(data || []);
+    }
+  };
+
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
+  // ✅ Open Add form
   const handleOpenForm = () => {
     setEditingOrder(null);
     setShowForm(true);
   };
 
-  
+  // ✅ Close form
   const handleCloseForm = () => {
     setShowForm(false);
     setEditingOrder(null);
   };
 
-  
-  const handleSave = (newOrder) => {
-    if (editingOrder !== null) {
-      setOrders((prev) =>
-        prev.map((order, idx) => (idx === editingOrder ? newOrder : order))
-      );
-    } else {
-      setOrders((prev) => [...prev, newOrder]);
-    }
+  // ✅ Refresh after save (AddPurchaseForm handles DB writes)
+  const handleSave = async () => {
+    await fetchOrders();
     setShowForm(false);
     setEditingOrder(null);
   };
 
-  
+  // ✅ Edit order
   const handleEdit = (index) => {
     setEditingOrder(index);
     setShowForm(true);
   };
 
-  
+  // ✅ Delete order
   const handleDeleteClick = (index) => {
     setDeleteIndex(index);
     setShowDeleteConfirm(true);
   };
 
-  
-  const confirmDelete = () => {
-    setOrders((prev) => prev.filter((_, idx) => idx !== deleteIndex));
+  const confirmDelete = async () => {
+  const orderToDelete = orders[deleteIndex];
+
+  console.log("Deleting order:", orderToDelete); // ✅ Check this in the browser console
+
+  if (!orderToDelete || !orderToDelete.id) {
+    console.error("No valid order to delete");
     setShowDeleteConfirm(false);
     setDeleteIndex(null);
-  };
+    return;
+  }
 
-  
+  const { error } = await supabase
+    .from("purchasing")
+    .delete()
+    .eq("id", orderToDelete.id);
+
+  if (error) {
+    console.error("Error deleting order:", error.message);
+  } else {
+    console.log("Order deleted successfully");
+    await fetchOrders();
+  }
+
+  setShowDeleteConfirm(false);
+  setDeleteIndex(null);
+};
+
+
+
   const cancelDelete = () => {
     setShowDeleteConfirm(false);
     setDeleteIndex(null);
   };
 
-  
+  // ✅ Show form when adding/editing
   if (showForm) {
     return (
       <AddPurchaseForm
@@ -717,80 +990,96 @@ function Purchasing() {
             </tr>
           </thead>
           <tbody>
-            {orders.map((order, idx) => (
-              <tr
-                key={idx}
-                style={{
-                  borderTop: "2px solid #ffffffff", 
-                  color: "#f1f5f9",
-                }}
-              >
-                <td style={{ padding: "2.3rem 0.5rem" }}>{order.poNumber}</td>
-                <td style={{ padding: "0.75rem 0.5rem" }}>{order.supplierId}</td>
-                <td style={{ padding: "0.75rem 0.5rem" }}>{order.item}</td>
-                <td style={{ padding: "0.75rem 0.5rem" }}>{order.category}</td>
-                <td style={{ padding: "0.75rem 0.5rem" }}>{order.quantity}</td>
-                <td style={{ padding: "0.75rem 0.5rem" }}>{order.total}</td>
-                <td style={{ padding: "0.75rem 0.5rem" }}>{order.date}</td>
-                <td style={{ padding: "0.75rem 0.5rem" }}>
-                  <span
+            {orders.length > 0 ? (
+              orders.map((order, idx) => (
+                <tr
+                  key={order.id}
+                  style={{
+                    borderTop: "2px solid #ffffffff",
+                    color: "#f1f5f9",
+                  }}
+                >
+                  <td style={{ padding: "2.3rem 0.5rem" }}>{order.po_number}</td>
+                  <td style={{ padding: "0.75rem 0.5rem" }}>{order.supplier_id}</td>
+                  <td style={{ padding: "0.75rem 0.5rem" }}>{order.item}</td>
+                  <td style={{ padding: "0.75rem 0.5rem" }}>{order.category}</td>
+                  <td style={{ padding: "0.75rem 0.5rem" }}>{order.quantity}</td>
+                  <td style={{ padding: "0.75rem 0.5rem" }}>{order.total}</td>
+                  <td style={{ padding: "0.75rem 0.5rem" }}>{order.date}</td>
+                  <td style={{ padding: "0.75rem 0.5rem" }}>
+                    <span
+                      style={{
+                        backgroundColor:
+                          order.receiving_status === "Received"
+                            ? "#22c55e"
+                            : "#ef4444",
+                        color: "#fff",
+                        padding: "0.25rem 0.5rem",
+                        borderRadius: "0.25rem",
+                        fontSize: "0.75rem",
+                      }}
+                    >
+                      {order.receiving_status}
+                    </span>
+                  </td>
+                  <td style={{ padding: "0.75rem 0.5rem" }}>
+                    <span
+                      style={{
+                        backgroundColor:
+                          order.payment_status === "Paid" ? "#22c55e" : "#ef4444",
+                        color: "#fff",
+                        padding: "0.25rem 0.5rem",
+                        borderRadius: "0.25rem",
+                        fontSize: "0.75rem",
+                      }}
+                    >
+                      {order.payment_status}
+                    </span>
+                  </td>
+                  <td
                     style={{
-                      backgroundColor:
-                        order.receivingStatus === "Received"
-                          ? "#22c55e"
-                          : "#ef4444",
-                      color: "#fff",
-                      padding: "0.25rem 0.5rem",
-                      borderRadius: "0.25rem",
-                      fontSize: "0.75rem",
+                      display: "flex",
+                      gap: "0.5rem",
+                      padding: "0.75rem 0.5rem",
                     }}
                   >
-                    {order.receivingStatus}
-                  </span>
-                </td>
-                <td style={{ padding: "0.75rem 0.5rem" }}>
-                  <span
-                    style={{
-                      backgroundColor:
-                        order.paymentStatus === "Paid" ? "#22c55e" : "#ef4444",
-                      color: "#fff",
-                      padding: "0.25rem 0.5rem",
-                      borderRadius: "0.25rem",
-                      fontSize: "0.75rem",
-                    }}
-                  >
-                    {order.paymentStatus}
-                  </span>
-                </td>
-                <td style={{ display: "flex", gap: "0.5rem", padding: "0.75rem 0.5rem" }}>
-                  <button
-                    onClick={() => handleEdit(idx)}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      color: "#fbbf24",
-                    }}
-                  >
-                    <EditIcon size={18} color="#ffffffff" />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteClick(idx)}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      color: "#ef4444",
-                    }}
-                  >
-                    <DeleteIcon size={18} color="#ffffff" />
-                  </button>
+                    <button
+                      onClick={() => handleEdit(idx)}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#fbbf24",
+                      }}
+                    >
+                      <EditIcon size={18} color="#ffffffff" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteClick(idx)}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#ef4444",
+                      }}
+                    >
+                      <DeleteIcon size={18} color="#ffffff" />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td
+                  colSpan="10"
+                  style={{ padding: "1rem", textAlign: "center", color: "#9ca3af" }}
+                >
+                  No purchase orders found.
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
-
       </div>
 
       {/* Delete Confirmation Modal */}
@@ -808,7 +1097,7 @@ function Purchasing() {
             justifyContent: "center",
             zIndex: 1000,
           }}
-          onClick={cancelDelete} 
+          onClick={cancelDelete}
         >
           <div
             style={{
@@ -818,7 +1107,7 @@ function Purchasing() {
               width: "400px",
               textAlign: "center",
             }}
-            onClick={(e) => e.stopPropagation()} 
+            onClick={(e) => e.stopPropagation()}
           >
             <h3 style={{ marginBottom: "1rem", color: "#363B5E" }}>Deletion</h3>
             <p
@@ -830,7 +1119,9 @@ function Purchasing() {
             >
               Delete this purchase order?
             </p>
-            <div style={{ display: "flex", justifyContent: "center", gap: "1rem" }}>
+            <div
+              style={{ display: "flex", justifyContent: "center", gap: "1rem" }}
+            >
               <button
                 onClick={confirmDelete}
                 style={{
@@ -902,109 +1193,99 @@ function DeleteIcon({ size = 18, color = "currentColor" }) {
 function WarehouseOperations() {
   const [activeTab, setActiveTab] = useState("Inbound");
 
-  
-  const [stocks, setStocks] = useState([
-    { item: "Monitor", category: "Electronics", quantity: 20 },
-    { item: "Keyboard", category: "Accessories", quantity: 50 },
-  ]);
+  // ------------------- STATE -------------------
+  const [stocks, setStocks] = useState([]);
   const [showStockForm, setShowStockForm] = useState(false);
   const [editingStock, setEditingStock] = useState(null);
 
-  
-  const handleSaveStock = (newStock) => {
-    if (editingStock !== null) {
-      setStocks((prev) =>
-        prev.map((s, idx) => (idx === editingStock ? newStock : s))
-      );
-    } else {
-      setStocks((prev) => [...prev, newStock]);
-    }
-    setShowStockForm(false);
-    setEditingStock(null);
-  };
-
-  const handleEditStock = (index) => {
-    setEditingStock(index);
-    setShowStockForm(true);
-  };
-
-  const handleAddStock = () => {
-    setEditingStock(null);
-    setShowStockForm(true);
-  };
-
-  const handleDeleteStock = (index) => {
-    setDeleteIndex(index);
-    setDeleteType("stock");
-    setShowDeleteConfirm(true);
-  };
-
-  
+  const [orders, setOrders] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingOrder, setEditingOrder] = useState(null);
-  const [orders, setOrders] = useState([
-    {
-      id: 1,
-      poNumber: "PO-001",
-      supplierId: "SUP-123",
-      item: "Laptop",
-      orderedquantity: 10,
-      quantity: 5,
-      total: "$5000",
-      date: "2025-09-08",
-      receivedQty: 5,
-      damaged: 0,
-      spoiled: 0,
-      missing: 0,
-      rejected: 0,
-    },
-    {
-      id: 1,
-      poNumber: "PO-001",
-      supplierId: "SUP-123",
-      item: "Laptop",
-      orderedquantity: 10,
-      quantity: 5,
-      total: "$5000",
-      date: "2025-09-08",
-      receivedQty: 5,
-      damaged: 0,
-      spoiled: 0,
-      missing: 0,
-      rejected: 0,
-    },
-  ]);
 
-  
-  const [outboundOrders, setOutboundOrders] = useState([
-    {
-      orderNumber: "OUT-1001",
-      retailerId: "RET-001",
-      item: "Monitor",
-      quantity: 10,
-      total: "$1500",
-      date: "2025-09-08",
-      status: "Delivered",
-    },
-    {
-      orderNumber: "OUT-1002",
-      retailerId: "RET-002",
-      item: "Keyboard",
-      quantity: 20,
-      total: "$600",
-      date: "2025-09-07",
-      status: "Returned",
-    },
-  ]);
+  const [outboundOrders, setOutboundOrders] = useState([]);
   const [showOutboundForm, setShowOutboundForm] = useState(false);
   const [editingOutbound, setEditingOutbound] = useState(null);
 
-  
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteIndex, setDeleteIndex] = useState(null);
   const [deleteType, setDeleteType] = useState(null);
 
-  
+  // ------------------- FETCH DATA -------------------
+  useEffect(() => {
+    fetchInboundOrders();
+    fetchOutboundOrders();
+    fetchStocks();
+  }, []);
+
+  const fetchInboundOrders = async () => {
+    const { data, error } = await supabase
+      .from("warehouse_operations")
+      .select(
+        "id, po_number, supplier_id, item, ordered_quantity, received_quantity, date, damaged, spoiled, missing, rejected"
+      )
+      .eq("operation_type", "Inbound");
+
+    if (error) console.error("Error fetching inbound orders:", error);
+    else {
+      const formatted = data.map((o) => ({
+        id: o.id,
+        poNumber: o.po_number,
+        supplierId: o.supplier_id,
+        item: o.item,
+        orderedquantity: o.ordered_quantity,
+        quantity: o.received_quantity,
+        date: o.date,
+        damaged: o.damaged,
+        spoiled: o.spoiled,
+        missing: o.missing,
+        rejected: o.rejected,
+      }));
+      setOrders(formatted);
+    }
+  };
+
+  const fetchOutboundOrders = async () => {
+    const { data, error } = await supabase
+      .from("warehouse_operations")
+      .select(
+        "id, order_number, retailer_id, item, received_quantity, total, date, status"
+      )
+      .eq("operation_type", "Outbound");
+
+    if (error) console.error("Error fetching outbound orders:", error);
+    else {
+      const formatted = data.map((o) => ({
+        id: o.id,
+        orderNumber: o.order_number,
+        retailerId: o.retailer_id,
+        item: o.item,
+        quantity: o.received_quantity,
+        total: o.total,
+        date: o.date,
+        status: o.status,
+      }));
+      setOutboundOrders(formatted);
+    }
+  };
+
+  const fetchStocks = async () => {
+    const { data, error } = await supabase
+      .from("purchasing")
+      .select("id, item, category, quantity");
+
+    if (error) console.error("Error fetching stocks:", error);
+    else {
+      const formatted = data.map((s) => ({
+        id: s.id,
+        item: s.item,
+        category: s.category,
+        quantity: s.quantity,
+      }));
+      setStocks(formatted);
+    }
+  };
+
+  // ------------------- HANDLERS -------------------
   const getStatusStyle = (status) => {
     switch (status) {
       case "Delivered":
@@ -1020,97 +1301,131 @@ function WarehouseOperations() {
     }
   };
 
-  
-  const handleCloseForm = () => {
-    setShowForm(false);
+  // inbound
+  const handleAddInbound = () => {
     setEditingOrder(null);
+    setShowForm(true);
   };
-  const handleSave = (newOrder) => {
-    if (editingOrder !== null) {
-      setOrders((prev) =>
-        prev.map((order, idx) => (idx === editingOrder ? newOrder : order))
-      );
-    } else {
-      setOrders((prev) => [...prev, { ...newOrder, id: Date.now() }]);
-    }
-    setShowForm(false);
-    setEditingOrder(null);
-  };
+
   const handleEditInbound = (index) => {
     setEditingOrder(index);
     setShowForm(true);
   };
-  
-  const handleCloseOutboundForm = () => {
+
+  // outbound
+  const handleAddOutbound = () => {
     setEditingOutbound(null);
-    setShowOutboundForm(false);
+    setShowOutboundForm(true);
   };
-  const handleSaveOutbound = (newOrder) => {
-    if (editingOutbound !== null) {
-      setOutboundOrders((prev) =>
-        prev.map((order, idx) => (idx === editingOutbound ? newOrder : order))
-      );
-    } else {
-      setOutboundOrders((prev) => [...prev, newOrder]);
-    }
-    setEditingOutbound(null);
-    setShowOutboundForm(false);
-  };
+
   const handleEditOutbound = (index) => {
     setEditingOutbound(index);
     setShowOutboundForm(true);
   };
 
-  
-  const confirmDelete = () => {
-    if (deleteType === "outbound") {
-      setOutboundOrders((prev) => prev.filter((_, idx) => idx !== deleteIndex));
-    } else if (deleteType === "stock") {
-      setStocks((prev) => prev.filter((_, idx) => idx !== deleteIndex));
-    }
-    setShowDeleteConfirm(false);
-    setDeleteIndex(null);
-    setDeleteType(null);
+  // stock
+  const handleAddStock = () => {
+    setEditingStock(null);
+    setShowStockForm(true);
   };
 
+  const handleEditStock = (index) => {
+    setEditingStock(index);
+    setShowStockForm(true);
+  };
+
+  const handleDeleteStock = (index) => {
+  setDeleteIndex(index);
+  setDeleteType("stock");
+  setShowDeleteConfirm(true);
+};
+
+
+const confirmDelete = async () => {
+  if (deleteType === "stock") {
+    const stockToDelete = stocks[deleteIndex];
+
+    try {
+      const { error } = await supabase
+        .from("purchasing")
+        .delete()
+        .eq("id", stockToDelete.id);
+
+      if (error) throw error;
+
+      // refresh local table
+      setStocks((prev) => prev.filter((_, idx) => idx !== deleteIndex));
+    } catch (err) {
+      console.error("Error deleting stock:", err.message);
+      alert("Error deleting stock: " + err.message);
+    }
+  } else if (deleteType === "outbound") {
+    setOutboundOrders((prev) => prev.filter((_, idx) => idx !== deleteIndex));
+  }
+
+  setShowDeleteConfirm(false);
+  setDeleteIndex(null);
+  setDeleteType(null);
+};
+
   
+const handleSave = async (newOrder) => {
+  // Update in state (optional for instant UI feedback)
+  if (editingOrder !== null) {
+    setOrders((prev) =>
+      prev.map((order, idx) => (idx === editingOrder ? newOrder : order))
+    );
+  } else {
+    setOrders((prev) => [...prev, { ...newOrder, id: Date.now() }]);
+  }
+
+  // ✅ Refetch from Supabase to stay in sync
+  await fetchInboundOrders();
+
+  setShowForm(false);
+  setEditingOrder(null);
+};
+
+  // ------------------- CONDITIONAL RENDER -------------------
   if (showForm) {
     return (
       <EditInboundForm
-        onClose={handleCloseForm}
+        onClose={() => setShowForm(false)}
         onSave={handleSave}
         initialData={editingOrder !== null ? orders[editingOrder] : null}
       />
     );
   }
 
-  
   if (showOutboundForm) {
-    return (
-      <EditOutboundForm
-        onClose={handleCloseOutboundForm}
-        onSave={handleSaveOutbound}
-        initialData={
-          editingOutbound !== null ? outboundOrders[editingOutbound] : null
-        }
-      />
-    );
-  }
+  return (
+    <EditOutboundForm
+      onClose={() => {
+        setEditingOutbound(null);
+        setShowOutboundForm(false);
+      }}
+      initialData={editingOutbound !== null ? outboundOrders[editingOutbound] : null}
+      refreshOutbound={fetchOutboundOrders}
+    />
+  );
+}
 
-  
-  if (showStockForm) {
-    return (
-      <EditStockForm
-        onClose={() => {
-          setShowStockForm(false);
-          setEditingStock(null);
-        }}
-        onSave={handleSaveStock}
-        initialData={editingStock !== null ? stocks[editingStock] : null}
-      />
-    );
-  }
 
+if (showStockForm) {
+  return (
+    <EditStockForm
+      onClose={() => {
+        setShowStockForm(false);
+        setEditingStock(null);
+      }}
+      initialData={editingStock !== null ? stocks[editingStock] : null}
+      refreshStocks={fetchStocks}   // ✅ critical for refreshing the table
+    />
+  );
+}
+
+
+  // ------------------- RENDER -------------------
   return (
     <div>
       <h2
@@ -1155,18 +1470,10 @@ function WarehouseOperations() {
         {/* Inbound Table */}
         {activeTab === "Inbound" && (
           <div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: "1rem",
-              }}
-            >
-            </div>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ textAlign: "left", color: "#ffffffff" }}>
-                  <th style={{ padding: "0.75rem" }}>Purchasing Order Number</th>
+                  <th style={{ padding: "0.75rem" }}>PO Number</th>
                   <th style={{ padding: "0.75rem" }}>Supplier ID</th>
                   <th style={{ padding: "0.75rem" }}>Item</th>
                   <th style={{ padding: "0.75rem" }}>Ordered Qty</th>
@@ -1176,6 +1483,7 @@ function WarehouseOperations() {
                   <th style={{ padding: "0.75rem" }}>Spoiled</th>
                   <th style={{ padding: "0.75rem" }}>Missing</th>
                   <th style={{ padding: "0.75rem" }}>Rejected</th>
+                  <th style={{ padding: "0.75rem" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1187,7 +1495,7 @@ function WarehouseOperations() {
                       color: "#f1f5f9",
                     }}
                   >
-                    <td style={{ padding: "2rem" }}>{order.poNumber}</td>
+                    <td style={{ padding: "0.75rem" }}>{order.poNumber}</td>
                     <td style={{ padding: "0.75rem" }}>{order.supplierId}</td>
                     <td style={{ padding: "0.75rem" }}>{order.item}</td>
                     <td style={{ padding: "0.75rem" }}>{order.orderedquantity}</td>
@@ -1217,18 +1525,9 @@ function WarehouseOperations() {
           </div>
         )}
 
-
         {/* Outbound Table */}
         {activeTab === "Outbound" && (
           <div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: "1rem",
-              }}
-            >
-            </div>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ textAlign: "left", color: "#cbd5e1" }}>
@@ -1239,12 +1538,13 @@ function WarehouseOperations() {
                   <th style={{ padding: "0.75rem" }}>Total</th>
                   <th style={{ padding: "0.75rem" }}>Date</th>
                   <th style={{ padding: "0.75rem" }}>Status</th>
+                  <th style={{ padding: "0.75rem" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {outboundOrders.map((order, idx) => (
                   <tr
-                    key={idx}
+                    key={order.id}
                     style={{
                       borderTop: "2.3px solid #ffffffff",
                       color: "#f1f5f9",
@@ -1269,7 +1569,13 @@ function WarehouseOperations() {
                         {order.status}
                       </span>
                     </td>
-                    <td style={{ display: "flex", gap: "0.5rem", padding: "0.75rem" }}>
+                    <td
+                      style={{
+                        display: "flex",
+                        gap: "0.5rem",
+                        padding: "0.75rem",
+                      }}
+                    >
                       <button
                         onClick={() => handleEditOutbound(idx)}
                         style={{
@@ -1288,7 +1594,6 @@ function WarehouseOperations() {
             </table>
           </div>
         )}
-
 
         {/* Stock Table */}
         {activeTab === "Stock" && (
@@ -1326,7 +1631,7 @@ function WarehouseOperations() {
               <tbody>
                 {stocks.map((stock, idx) => (
                   <tr
-                    key={idx}
+                    key={stock.id}
                     style={{
                       borderTop: "2.3px solid #ffffffff",
                       color: "#f1f5f9",
@@ -1335,7 +1640,13 @@ function WarehouseOperations() {
                     <td style={{ padding: "0.75rem" }}>{stock.item}</td>
                     <td style={{ padding: "0.75rem" }}>{stock.category}</td>
                     <td style={{ padding: "0.75rem" }}>{stock.quantity}</td>
-                    <td style={{ display: "flex", gap: "0.5rem", padding: "0.75rem" }}>
+                    <td
+                      style={{
+                        display: "flex",
+                        gap: "0.5rem",
+                        padding: "0.75rem",
+                      }}
+                    >
                       <button
                         onClick={() => handleEditStock(idx)}
                         style={{
@@ -1357,7 +1668,6 @@ function WarehouseOperations() {
                         }}
                       >
                         <DeleteIcon size={18} color="#ffffff" />
-
                       </button>
                     </td>
                   </tr>
@@ -1366,7 +1676,6 @@ function WarehouseOperations() {
             </table>
           </div>
         )}
-
       </div>
 
       {/* Delete Confirmation Modal */}
@@ -1439,43 +1748,45 @@ function WarehouseOperations() {
   );
 }
 
-
 function ItemAssignments() {
-  const [assignments, setAssignments] = useState([
-    {
-      orderNumber: "ORD-001",
-      retailerId: "RET-001",
-      item: "Laptop",
-      quantity: 5,
-      status: "Approved",
-    },
-    {
-      orderNumber: "ORD-002",
-      retailerId: "RET-002",
-      item: "Keyboard",
-      quantity: 10,
-      status: "Disapproved",
-    },
-    {
-      orderNumber: "ORD-003",
-      retailerId: "RET-003",
-      item: "Mouse",
-      quantity: 2,
-      status: "Pending",
-    },
-  ]);
-
-
-
+  const [assignments, setAssignments] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteIndex, setDeleteIndex] = useState(null);
 
+  // Fetch assignments once on mount
+  useEffect(() => {
+    fetchAssignments();
+  }, []);
+
+  const fetchAssignments = async () => {
+    const { data, error } = await supabase
+      .from("item_assign")
+      .select("order_number, retailer_id, item, quantity, status");
+
+    if (error) {
+      console.error("Error fetching assignments:", error.message);
+    } else {
+      const formatted = data.map((a) => ({
+        orderNumber: a.order_number,
+        retailerId: a.retailer_id,
+        item: a.item,
+        quantity: a.quantity,
+        status: a.status,
+      }));
+      setAssignments(formatted);
+    }
+  };
+
   const getStatusStyle = (status) => {
     switch (status) {
+      case "approved":
+        return { backgroundColor: "#22c55e", color: "#fff" };
       case "Approved":
         return { backgroundColor: "#22c55e", color: "#fff" };
+      case "disapproved":
+        return { backgroundColor: "#ef4444", color: "#fff" };
       case "Disapproved":
         return { backgroundColor: "#ef4444", color: "#fff" };
       case "Pending":
@@ -1495,16 +1806,34 @@ function ItemAssignments() {
     setEditingAssignment(null);
   };
 
-  const handleSave = (newAssignment) => {
-    if (editingAssignment !== null) {
-      setAssignments((prev) =>
-        prev.map((a, idx) => (idx === editingAssignment ? newAssignment : a))
-      );
-    } else {
-      setAssignments((prev) => [...prev, newAssignment]);
+  // Save handler: insert or update + refresh
+  const handleSave = async (newAssignment) => {
+    try {
+      if (editingAssignment !== null) {
+        const orderNumber = assignments[editingAssignment].orderNumber;
+
+        const { error } = await supabase
+          .from("item_assign")
+          .update(newAssignment)
+          .eq("order_number", orderNumber);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("item_assign")
+          .insert([newAssignment]);
+
+        if (error) throw error;
+      }
+
+      await fetchAssignments(); // refresh after save
+      setShowForm(false);
+      setEditingAssignment(null);
+      return { success: true };
+    } catch (err) {
+      console.error("Error saving assignment:", err.message);
+      return { success: false, error: err };
     }
-    setShowForm(false);
-    setEditingAssignment(null);
   };
 
   const handleEdit = (index) => {
@@ -1517,8 +1846,23 @@ function ItemAssignments() {
     setShowDeleteConfirm(true);
   };
 
-  const confirmDelete = () => {
-    setAssignments((prev) => prev.filter((_, idx) => idx !== deleteIndex));
+  // Delete handler + refresh
+  const confirmDelete = async () => {
+    const assignmentToDelete = assignments[deleteIndex];
+
+    try {
+      const { error } = await supabase
+        .from("item_assign")
+        .delete()
+        .eq("order_number", assignmentToDelete.orderNumber);
+
+      if (error) throw error;
+
+      await fetchAssignments(); // refresh after delete
+    } catch (err) {
+      console.error("Error deleting assignment:", err.message);
+    }
+
     setShowDeleteConfirm(false);
     setDeleteIndex(null);
   };
@@ -1533,7 +1877,9 @@ function ItemAssignments() {
       <AssignmentForm
         onClose={handleCloseForm}
         onSave={handleSave}
-        initialData={editingAssignment !== null ? assignments[editingAssignment] : null}
+        initialData={
+          editingAssignment !== null ? assignments[editingAssignment] : null
+        }
       />
     );
   }
@@ -1558,23 +1904,27 @@ function ItemAssignments() {
             marginBottom: "1rem",
           }}
         >
-          <h3 style={{ fontSize: "1.25rem", fontWeight: "600" }}>Assignments of Items to the Retailers</h3>
-          <button
-            onClick={handleOpenForm}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.25rem",
-              backgroundColor: "#ffffffff",
-              color: "#000000ff",
-              border: "none",
-              borderRadius: "0.5rem",
-              padding: "0.5rem 1rem",
-              cursor: "pointer",
-            }}
-          >
-            <Plus size={18} /> Add
-          </button>
+          <h3 style={{ fontSize: "1.25rem", fontWeight: "600" }}>
+            Assignments of Items to the Retailers
+          </h3>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button
+              onClick={handleOpenForm}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.25rem",
+                backgroundColor: "#ffffffff",
+                color: "#000000ff",
+                border: "none",
+                borderRadius: "0.5rem",
+                padding: "0.5rem 1rem",
+                cursor: "pointer",
+              }}
+            >
+              <Plus size={18} /> Add
+            </button>
+          </div>
         </div>
 
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -1591,7 +1941,7 @@ function ItemAssignments() {
           <tbody>
             {assignments.map((assignment, idx) => (
               <tr
-                key={idx}
+                key={assignment.orderNumber}
                 style={{
                   borderTop: "2.3px solid #ffffffff",
                   color: "#f1f5f9",
@@ -1615,7 +1965,7 @@ function ItemAssignments() {
                 </td>
                 <td
                   style={{
-                    padding: "2rem 0", 
+                    padding: "2rem 0",
                     display: "flex",
                     gap: "0.5rem",
                   }}
@@ -1647,7 +1997,6 @@ function ItemAssignments() {
             ))}
           </tbody>
         </table>
-
       </div>
 
       {showDeleteConfirm && (
@@ -1677,7 +2026,13 @@ function ItemAssignments() {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 style={{ marginBottom: "1rem", color: "#363B5E" }}>Deletion</h3>
-            <p style={{ marginBottom: "1.5rem", fontSize: "1.1rem", color: "#363B5E" }}>
+            <p
+              style={{
+                marginBottom: "1.5rem",
+                fontSize: "1.1rem",
+                color: "#363B5E",
+              }}
+            >
               Are you sure you want to delete this item?
             </p>
             <div style={{ display: "flex", justifyContent: "center", gap: "1rem" }}>
@@ -1715,77 +2070,44 @@ function ItemAssignments() {
   );
 }
 
-
-const mockItemAssignments = [
-  {
-    orderNumber: "12345",
-    retailerId: "R-001",
-    item: "Label Item",
-    category: "Label Item",
-    quantity: 10,
-    status: "Approved",
-  },
-  {
-    orderNumber: "12346",
-    retailerId: "R-002",
-    item: "Label Item",
-    category: "Label Item",
-    quantity: 5,
-    status: "Disapproved",
-  },
-  {
-    orderNumber: "12347",
-    retailerId: "R-003",
-    item: "Label Item",
-    category: "Label Item",
-    quantity: 8,
-    status: "Pending",
-  },
-];
-
-function Approvals({ assignments = mockItemAssignments }) {
-  const [data, setData] = useState(assignments);
+function Approvals() {
+  const [data, setData] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(null);
 
+  // ✅ Fetch assignments from Supabase
+  useEffect(() => {
+    fetchAssignments();
+  }, []);
+
+  const fetchAssignments = async () => {
+    const { data, error } = await supabase
+      .from("item_assign")
+      .select("order_number, retailer_id, item, category, quantity, status");
+
+    if (error) {
+      console.error("Error fetching assignments:", error.message);
+    } else {
+      const formatted = data.map((a) => ({
+        orderNumber: a.order_number,
+        retailerId: a.retailer_id,
+        item: a.item,
+        category: a.category,
+        quantity: a.quantity,
+        status: a.status,
+      }));
+      setData(formatted);
+    }
+  };
+
   const getStatusStyle = (status) => {
-    switch (status) {
-      case "Approved":
-        return {
-          backgroundColor: "#22c55e",
-          color: "#fff",
-          padding: "0.25rem 0.75rem",
-          borderRadius: "0.25rem",
-          fontWeight: "600",
-          fontSize: "0.75rem",
-          display: "inline-block",
-          minWidth: "60px",
-          textAlign: "center",
-        };
-      case "Disapproved":
-        return {
-          backgroundColor: "#ef4444",
-          color: "#fff",
-          padding: "0.25rem 0.75rem",
-          borderRadius: "0.25rem",
-          fontWeight: "600",
-          fontSize: "0.75rem",
-          display: "inline-block",
-          minWidth: "60px",
-          textAlign: "center",
-        };
-      case "Pending":
-        return {
-          backgroundColor: "#f59e0b",
-          color: "#fff",
-          padding: "0.25rem 0.75rem",
-          borderRadius: "0.25rem",
-          fontWeight: "600",
-          fontSize: "0.75rem",
-          display: "inline-block",
-          minWidth: "60px",
-          textAlign: "center",
-        };
+    switch (status?.toLowerCase()) {
+      case "approved":
+        return { backgroundColor: "#22c55e", color: "#fff", padding: "0.25rem 0.75rem", borderRadius: "0.25rem", fontWeight: "600", fontSize: "0.75rem", display: "inline-block", minWidth: "60px", textAlign: "center" };
+      case "disapproved":
+        return { backgroundColor: "#ef4444", color: "#fff", padding: "0.25rem 0.75rem", borderRadius: "0.25rem", fontWeight: "600", fontSize: "0.75rem", display: "inline-block", minWidth: "60px", textAlign: "center" };
+      case "pending":
+        return { backgroundColor: "#f59e0b", color: "#fff", padding: "0.25rem 0.75rem", borderRadius: "0.25rem", fontWeight: "600", fontSize: "0.75rem", display: "inline-block", minWidth: "60px", textAlign: "center" };
       default:
         return {};
     }
@@ -1801,50 +2123,45 @@ function Approvals({ assignments = mockItemAssignments }) {
     setModalOpen(false);
   };
 
-  const updateStatus = (newStatus) => {
-    setData((prev) =>
-      prev.map((item, idx) =>
-        idx === selectedIndex ? { ...item, status: newStatus } : item
-      )
-    );
-    closeModal();
+  // ✅ Update DB + local state
+  const updateStatus = async (newStatus) => {
+    const assignment = data[selectedIndex];
+    if (!assignment) return;
+
+    try {
+      console.log("Updating order:", assignment.orderNumber, "to", newStatus); // ✅ Debug
+
+      const { error } = await supabase
+        .from("item_assign")
+        .update({ status: newStatus })
+        .eq("order_number", assignment.orderNumber)
+
+      if (error) throw error;
+
+      // update local state
+      setData((prev) =>
+        prev.map((item, idx) =>
+          idx === selectedIndex ? { ...item, status: newStatus } : item
+        )
+      );
+    } catch (err) {
+      console.error("Error updating status:", err.message);
+    } finally {
+      closeModal();
+    }
   };
 
   return (
     <div style={{ padding: "0.5rem" }}>
-      <h2
-        style={{
-          fontSize: "1.5rem",
-          fontWeight: "700",
-          marginBottom: "1rem",
-          color: "#fff",
-        }}
-      >
+      <h2 style={{ fontSize: "1.5rem", fontWeight: "700", marginBottom: "1rem", color: "#fff" }}>
         Approvals
       </h2>
 
-      <div
-        style={{
-          backgroundColor: "#363B5E",
-          padding: "2rem",
-          borderRadius: "12px",
-          maxWidth: "1000px",
-          margin: "auto",
-          color: "#fff",
-          fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-        }}
-      >
+      <div style={{ backgroundColor: "#363B5E", padding: "2rem", borderRadius: "12px", maxWidth: "1000px", margin: "auto", color: "#fff", fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
         <h2 style={{ marginBottom: "1.5rem", fontWeight: "600" }}>
           Approval of Item Assignment
         </h2>
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            color: "#ffffffff",
-            fontSize: "0.85rem",
-          }}
-        >
+        <table style={{ width: "100%", borderCollapse: "collapse", color: "#ffffffff", fontSize: "0.85rem" }}>
           <thead>
             <tr style={{ borderBottom: "2px solid #ffffffff", fontWeight: "600" }}>
               <th style={{ padding: "0.75rem" }}>Order Number</th>
@@ -1858,29 +2175,12 @@ function Approvals({ assignments = mockItemAssignments }) {
           </thead>
           <tbody>
             {data.map((assignment, idx) => (
-              <tr
-                key={idx}
-                style={{
-                  borderBottom: "2px solid #ffffffff",
-                  color: "#ffffffff",
-                  fontWeight: "500",
-                }}
-              >
-                <td style={{ padding: "2rem", textAlign: "center" }}>
-                  {assignment.orderNumber}
-                </td>
-                <td style={{ padding: "0.75rem", textAlign: "center" }}>
-                  {assignment.retailerId}
-                </td>
-                <td style={{ padding: "0.75rem", textAlign: "center" }}>
-                  {assignment.item}
-                </td>
-                <td style={{ padding: "0.75rem", textAlign: "center" }}>
-                  {assignment.category}
-                </td>
-                <td style={{ padding: "0.75rem", textAlign: "center" }}>
-                  {assignment.quantity}
-                </td>
+              <tr key={assignment.orderNumber} style={{ borderBottom: "2px solid #ffffffff", color: "#ffffffff", fontWeight: "500" }}>
+                <td style={{ padding: "2rem", textAlign: "center" }}>{assignment.orderNumber}</td>
+                <td style={{ padding: "0.75rem", textAlign: "center" }}>{assignment.retailerId}</td>
+                <td style={{ padding: "0.75rem", textAlign: "center" }}>{assignment.item}</td>
+                <td style={{ padding: "0.75rem", textAlign: "center" }}>{assignment.category}</td>
+                <td style={{ padding: "0.75rem", textAlign: "center" }}>{assignment.quantity}</td>
                 <td style={{ padding: "0.75rem", textAlign: "center" }}>
                   <span style={getStatusStyle(assignment.status)}>
                     {assignment.status}
@@ -1889,12 +2189,7 @@ function Approvals({ assignments = mockItemAssignments }) {
                 <td style={{ padding: "0.75rem", textAlign: "center" }}>
                   <button
                     onClick={() => openModal(idx)}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      color: "#fff",
-                    }}
+                    style={{ background: "transparent", border: "none", cursor: "pointer", color: "#fff" }}
                     aria-label={`Edit assignment ${assignment.orderNumber}`}
                   >
                     <Tag size={18} />
@@ -1907,74 +2202,22 @@ function Approvals({ assignments = mockItemAssignments }) {
 
         {/* Modal */}
         {modalOpen && selectedIndex !== null && (
-          <div
-            onClick={closeModal}
-            style={{
-              position: "fixed",
-              inset: 0,
-              backgroundColor: "rgba(0,0,0,0.6)",
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              zIndex: 1000,
-            }}
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                backgroundColor: "#fff",
-                padding: "2rem",
-                borderRadius: "12px",
-                maxWidth: "400px",
-                width: "90%",
-                color: "#363B5E",
-                boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "0.75rem",
-                  marginBottom: "1rem",
-                  fontWeight: "600",
-                }}
-              >
-                Approvals
-              </div>
+          <div onClick={closeModal} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: "#fff", padding: "2rem", borderRadius: "12px", maxWidth: "400px", width: "90%", color: "#363B5E", boxShadow: "0 10px 25px rgba(0,0,0,0.2)" }}>
+              <div style={{ fontSize: "0.75rem", marginBottom: "1rem", fontWeight: "600" }}>Approvals</div>
               <h3 style={{ marginBottom: "1.5rem", fontWeight: "700" }}>
                 Approve this item assignment?
               </h3>
-              <div
-                style={{
-                  display: "flex",
-                  gap: "1rem",
-                  justifyContent: "flex-end",
-                }}
-              >
+              <div style={{ display: "flex", gap: "1rem", justifyContent: "flex-end" }}>
                 <button
-                  onClick={() => updateStatus("Approved")}
-                  style={{
-                    backgroundColor: "#86efac",
-                    border: "none",
-                    padding: "0.5rem 1rem",
-                    borderRadius: "0.5rem",
-                    cursor: "pointer",
-                    fontWeight: "600",
-                    color: "#363B5E",
-                  }}
+                  onClick={() => updateStatus("approved")} // ✅ lowercase to match DB
+                  style={{ backgroundColor: "#86efac", border: "none", padding: "0.5rem 1rem", borderRadius: "0.5rem", cursor: "pointer", fontWeight: "600", color: "#363B5E" }}
                 >
                   Approve
                 </button>
                 <button
-                  onClick={() => updateStatus("Disapproved")}
-                  style={{
-                    backgroundColor: "#fca5a5",
-                    border: "none",
-                    padding: "0.5rem 1rem",
-                    borderRadius: "0.5rem",
-                    cursor: "pointer",
-                    fontWeight: "600",
-                    color: "#7f1d1d",
-                  }}
+                  onClick={() => updateStatus("disapproved")}
+                  style={{ backgroundColor: "#fca5a5", border: "none", padding: "0.5rem 1rem", borderRadius: "0.5rem", cursor: "pointer", fontWeight: "600", color: "#7f1d1d" }}
                 >
                   Disapprove
                 </button>
@@ -1987,93 +2230,90 @@ function Approvals({ assignments = mockItemAssignments }) {
   );
 }
 
-
-
 function RetailerAndBilling() {
   const [activeTab, setActiveTab] = useState("retailers");
 
-  
-  const [retailers, setRetailers] = useState([
-    {
-      id: "RET-001",
-      name: "Retailer One",
-      address: "123 Main St",
-      email: "retailer1@email.com",
-      contact: "555-1234",
-    },
-    {
-      id: "RET-002",
-      name: "Retailer Two",
-      address: "456 Market Rd",
-      email: "retailer2@email.com",
-      contact: "555-5678",
-    },
-  ]);
+  // retailers from Supabase
+  const [retailers, setRetailers] = useState([]);
 
-  
-  const [billing, setBilling] = useState([
-    {
-      id: 1,
-      invoiceNumber: "INV-001",
-      orderNumber: "ORD-001",
-      date: "2025-09-01",
-      retailerId: "RET-001",
-      retailerName: "Retailer One",
-      address: "123 Main St",
-      email: "retailer1@email.com",
-      contact: "555-1234",
-      item: "Product A",
-      quantity: 5,
-      total: "$500",
-      status: "Paid",
-    },
-    {
-      id: 2,
-      invoiceNumber: "INV-002",
-      orderNumber: "ORD-002",
-      date: "2025-09-03",
-      retailerId: "RET-002",
-      retailerName: "Retailer Two",
-      address: "456 Market Rd",
-      email: "retailer2@email.com",
-      contact: "555-5678",
-      item: "Product B",
-      quantity: 3,
-      total: "$300",
-      status: "Pending",
-    },
-    {
-      id: 3,
-      invoiceNumber: "INV-003",
-      orderNumber: "ORD-003",
-      date: "2025-09-05",
-      retailerId: "RET-001",
-      retailerName: "Retailer One",
-      address: "123 Main St",
-      email: "retailer1@email.com",
-      contact: "555-1234",
-      item: "Product C",
-      quantity: 10,
-      total: "$1000",
-      status: "Unbilled",
-    },
-  ]);
+  // billing from Supabase
+  const [billing, setBilling] = useState([]);
 
   const [showForm, setShowForm] = useState(false);
   const [editingIndex, setEditingIndex] = useState(null);
-
-  
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteIndex, setDeleteIndex] = useState(null);
-  
+
   const [showBillingDeleteConfirm, setShowBillingDeleteConfirm] = useState(false);
   const [deleteBillingId, setDeleteBillingId] = useState(null);
 
-  
   const [selectedBilling, setSelectedBilling] = useState(null);
-  const [invoiceMode, setInvoiceMode] = useState("view"); 
+  const [invoiceMode, setInvoiceMode] = useState("view");
 
-  
+  // ---------------- FETCH RETAILERS ----------------
+  useEffect(() => {
+    const fetchRetailers = async () => {
+      const { data, error } = await supabase
+        .from("retailer_supplier")
+        .select("id, type, name, address, email, contact_number")
+        .eq("type", "retailer");
+
+      if (error) {
+        console.error("Error fetching retailers:", error.message);
+      } else {
+        setRetailers(data || []);
+      }
+    };
+
+    fetchRetailers();
+  }, []);
+
+// ---------------- FETCH BILLING (item_assign + retailer_supplier) ----------------
+useEffect(() => {
+  const fetchBilling = async () => {
+    const { data, error } = await supabase
+      .from("billing")
+      .select(`
+        invoice_id,
+        retailer_id,
+        retailer_name,
+        address,
+        email,
+        contact_number,
+        item,
+        quantity,
+        total,
+        date,
+        status
+      `);
+
+    if (error) {
+      console.error("Error fetching billing:", error.message);
+    } else {
+      const formatted = (data || []).map((row) => ({
+        order_number: row.invoice_id, // 🔹 use invoice_id as order_number if needed
+        invoice_id: row.invoice_id,
+        retailer_id: row.retailer_id,
+        retailerName: row.retailer_name ?? "",
+        address: row.address ?? "",
+        email: row.email ?? "",
+        contact: row.contact_number ?? "",
+        item: row.item,
+        quantity: row.quantity,
+        total: row.total ?? 0,
+        date: row.date ?? "",
+        status: row.status ?? "Pending",
+      }));
+      setBilling(formatted);
+    }
+  };
+
+  fetchBilling();
+}, []);
+
+
+
+  // ---------------- HANDLERS ----------------
   const handleAdd = () => {
     setEditingIndex(null);
     setShowForm(true);
@@ -2089,11 +2329,54 @@ function RetailerAndBilling() {
     setShowDeleteConfirm(true);
   };
 
-  const confirmDelete = () => {
-    setRetailers((prev) => prev.filter((_, idx) => idx !== deleteIndex));
+  const confirmDelete = async () => {
+  const retailerToDelete = retailers[deleteIndex];
+  if (!retailerToDelete) return;
+
+  // Delete related item_assign rows
+  const { error: errorItems } = await supabase
+    .from("item_assign")
+    .delete()
+    .eq("retailer_id", retailerToDelete.id);
+
+  if (errorItems) {
+    alert(`Failed to delete related item assignments: ${errorItems.message}`);
     setShowDeleteConfirm(false);
     setDeleteIndex(null);
-  };
+    return;
+  }
+
+  // Delete related warehouse_operations rows
+  const { error: errorWarehouse } = await supabase
+    .from("warehouse_operations")
+    .delete()
+    .eq("retailer_id", retailerToDelete.id);
+
+  if (errorWarehouse) {
+    alert(`Failed to delete related warehouse operations: ${errorWarehouse.message}`);
+    setShowDeleteConfirm(false);
+    setDeleteIndex(null);
+    return;
+  }
+
+  // Now delete the retailer
+  const { error } = await supabase
+    .from("retailer_supplier")
+    .delete()
+    .eq("id", retailerToDelete.id);
+
+  if (error) {
+    alert(`Failed to delete retailer: ${error.message}`);
+  } else {
+    setRetailers((prev) => prev.filter((r) => r.id !== retailerToDelete.id));
+    alert("Retailer deleted successfully.");
+  }
+
+  setShowDeleteConfirm(false);
+  setDeleteIndex(null);
+};
+
+
 
   const cancelDelete = () => {
     setShowDeleteConfirm(false);
@@ -2120,7 +2403,6 @@ function RetailerAndBilling() {
     setEditingIndex(null);
   };
 
-  
   const openInvoice = (bill, mode = "view") => {
     setSelectedBilling(bill);
     setInvoiceMode(mode);
@@ -2153,7 +2435,7 @@ function RetailerAndBilling() {
     setDeleteBillingId(null);
   };
 
-  
+  // ---------------- CONDITIONAL RENDERS ----------------
   if (showForm) {
     return (
       <EditRetailerForm
@@ -2164,7 +2446,6 @@ function RetailerAndBilling() {
     );
   }
 
-  
   if (selectedBilling) {
     return (
       <EditInvoiceForm
@@ -2176,14 +2457,13 @@ function RetailerAndBilling() {
     );
   }
 
-  
+  // ---------------- MAIN UI ----------------
   return (
     <div>
       <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "1rem" }}>
         Retailer & Billing
       </h2>
 
-      {/* Card */}
       <div
         style={{
           backgroundColor: "#363B5E",
@@ -2191,6 +2471,7 @@ function RetailerAndBilling() {
           borderRadius: "0.75rem",
         }}
       >
+        {/* Tabs */}
         <div
           style={{
             display: "flex",
@@ -2270,7 +2551,7 @@ function RetailerAndBilling() {
                   <td style={{ padding: "0.75rem" }}>{retailer.name}</td>
                   <td style={{ padding: "0.75rem" }}>{retailer.address}</td>
                   <td style={{ padding: "0.75rem" }}>{retailer.email}</td>
-                  <td style={{ padding: "0.75rem" }}>{retailer.contact}</td>
+                  <td style={{ padding: "0.75rem" }}>{retailer.contact_number}</td>
                   <td style={{ display: "flex", gap: "0.5rem", padding: "2rem" }}>
                     <button
                       onClick={() => handleEdit(idx)}
@@ -2301,98 +2582,105 @@ function RetailerAndBilling() {
           </table>
         )}
 
-        {/* Billing table */}
-        {activeTab === "billing" && (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ color: "#cbd5e1", textAlign: "left" }}>
-                <th style={{ padding: "0.75rem" }}>Order Number</th>
-                <th style={{ padding: "0.75rem" }}>Retailer ID</th>
-                <th style={{ padding: "0.75rem" }}>Item</th>
-                <th style={{ padding: "0.75rem" }}>Quantity</th>
-                <th style={{ padding: "0.75rem" }}>Total</th>
-                <th style={{ padding: "0.75rem" }}>Date</th>
-                <th style={{ padding: "0.75rem" }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {billing.map((bill) => (
-                <tr
-                  key={bill.id}
-                  style={{ borderTop: "1px solid #ffffffff", color: "#f1f5f9" }}
-                >
-                  <td style={{ padding: "2rem" }}>{bill.orderNumber}</td>
-                  <td style={{ padding: "0.75rem" }}>{bill.retailerId}</td>
-                  <td style={{ padding: "0.75rem" }}>{bill.item}</td>
-                  <td style={{ padding: "0.75rem" }}>{bill.quantity}</td>
-                  <td style={{ padding: "0.75rem" }}>{bill.total}</td>
-                  <td style={{ padding: "0.75rem" }}>{bill.date}</td>
-                  <td style={{ padding: "0.75rem" }}>
-                    <span
-                      style={{
-                        padding: "0.2rem 0.5rem",
-                        borderRadius: "0.25rem",
-                        fontSize: "0.8rem",
-                        fontWeight: "600",
-                        backgroundColor:
-                          bill.status === "Paid"
-                            ? "#22c55e"
-                            : bill.status === "Pending"
-                              ? "#f97316"
-                              : "#ef4444",
-                      }}
-                    >
-                      {bill.status}
-                    </span>
-                  </td>
-                  <td style={{ display: "flex", gap: "0.5rem", padding: "2rem" }}>
-                    {/* If Paid → show Eye */}
-                    {bill.status === "Paid" && (
-                      <button
-                        onClick={() => openInvoice(bill, "view")}
-                        style={{
-                          background: "transparent",
-                          border: "none",
-                          cursor: "pointer",
-                          color: "#3b82f6",
-                        }}
-                      >
-                        <Eye size={18} />
-                      </button>
-                    )}
+       {/* Billing table */}
+{activeTab === "billing" && (
+  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+    <thead>
+      <tr style={{ color: "#cbd5e1", textAlign: "left" }}>
+        <th style={{ padding: "0.75rem" }}>Invoice ID</th>
+        <th style={{ padding: "0.75rem" }}>Retailer ID</th>
+        <th style={{ padding: "0.75rem" }}>Retailer Name</th>
+        <th style={{ padding: "0.75rem" }}>Email</th>
+        <th style={{ padding: "0.75rem" }}>Contact</th>
+        <th style={{ padding: "0.75rem" }}>Address</th>
+        <th style={{ padding: "0.75rem" }}>Item</th>
+        <th style={{ padding: "0.75rem" }}>Quantity</th>
+        <th style={{ padding: "0.75rem" }}>Total</th>
+        <th style={{ padding: "0.75rem" }}>Date</th>
+        <th style={{ padding: "0.75rem" }}>Status</th>
+        <th style={{ padding: "0.75rem" }}>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {billing.map((bill) => (
+        <tr
+          key={bill.invoice_id}
+          style={{ borderTop: "1px solid #ffffffff", color: "#f1f5f9" }}
+        >
+          <td style={{ padding: "0.75rem" }}>{bill.invoice_id}</td>
+          <td style={{ padding: "0.75rem" }}>{bill.retailer_id}</td>
+          <td style={{ padding: "0.75rem" }}>{bill.retailerName}</td>
+          <td style={{ padding: "0.75rem" }}>{bill.email}</td>
+          <td style={{ padding: "0.75rem" }}>{bill.contact}</td>
+          <td style={{ padding: "0.75rem" }}>{bill.address}</td>
+          <td style={{ padding: "0.75rem" }}>{bill.item}</td>
+          <td style={{ padding: "0.75rem" }}>{bill.quantity}</td>
+          <td style={{ padding: "0.75rem" }}>{bill.total}</td>
+          <td style={{ padding: "0.75rem" }}>{bill.date}</td>
+          <td style={{ padding: "0.75rem" }}>
+            <span
+              style={{
+                padding: "0.2rem 0.5rem",
+                borderRadius: "0.25rem",
+                fontSize: "0.8rem",
+                fontWeight: "600",
+                backgroundColor:
+                  bill.status === "Paid"
+                    ? "#22c55e"
+                    : bill.status === "Pending"
+                    ? "#f97316"
+                    : "#ef4444",
+              }}
+            >
+              {bill.status}
+            </span>
+          </td>
+          <td style={{ display: "flex", gap: "0.5rem", padding: "0.75rem" }}>
+            {bill.status === "Paid" && (
+              <button
+                onClick={() => openInvoice(bill, "view")}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#3b82f6",
+                }}
+              >
+                <Eye size={18} />
+              </button>
+            )}
 
-                    {/* If NOT Paid → show Edit */}
-                    {bill.status !== "Paid" && (
-                      <button
-                        onClick={() => openInvoice(bill, "charge")}
-                        style={{
-                          background: "transparent",
-                          border: "none",
-                          cursor: "pointer",
-                          color: "#fbbf24",
-                        }}
-                      >
-                        <EditIcon size={18} color="#ffffffff" />
-                      </button>
-                    )}
+            {bill.status !== "Paid" && (
+              <button
+                onClick={() => openInvoice(bill, "charge")}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#fbbf24",
+                }}
+              >
+                <EditIcon size={18} color="#ffffffff" />
+              </button>
+            )}
 
-                    <button
-                      onClick={() => handleBillingDeleteClick(bill.id)}
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        cursor: "pointer",
-                        color: "#ef4444",
-                      }}
-                    >
-                      <DeleteIcon size={18} color="#ffffff" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+            <button
+              onClick={() => handleBillingDeleteClick(bill.invoice_id)}
+              style={{
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                color: "#ef4444",
+              }}
+            >
+              <DeleteIcon size={18} color="#ffffff" />
+            </button>
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+)}
 
         {/* Billing delete confirmation */}
         {showBillingDeleteConfirm && (
@@ -2474,7 +2762,6 @@ function RetailerAndBilling() {
             </div>
           </div>
         )}
-
       </div>
 
       {/* Retailer delete confirmation */}
@@ -2505,7 +2792,9 @@ function RetailerAndBilling() {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 style={{ marginBottom: "1rem", color: "#363B5E" }}>Deletion</h3>
-            <p style={{ marginBottom: "1.5rem", textAlign: "center", color: "#000000ff" }}>
+            <p
+              style={{ marginBottom: "1.5rem", textAlign: "center", color: "#000000ff" }}
+            >
               Are you sure you want to delete this retailer?
             </p>
             <div style={{ display: "flex", justifyContent: "center", gap: "1rem" }}>
@@ -2542,13 +2831,9 @@ function RetailerAndBilling() {
 }
 
 
-
-
-
 function App() {
   const [user, setUser] = React.useState(null);
 
-  
   const [users, setUsers] = React.useState([
     { name: "Alice", username: "admin", password: "1234", role: "Admin" },
     { name: "Bob", username: "purchasing", password: "1234", role: "Purchasing Officer" },
@@ -2567,26 +2852,6 @@ function App() {
       />
     );
   }
-
-  const validateUser = (username, password) => {
-    const found = users.find(
-      (u) => u.username === username && u.password === password
-    );
-    if (found) {
-      setUser(found);
-      return true;
-    }
-    return false;
-  };
-
-  
-  const access = {
-    purchasing: ["Admin", "Purchasing Officer"],
-    warehouse: ["Admin", "Warehouse Staff"],
-    assignments: ["Admin", "CSR"],
-    approvals: ["Admin", "Team Leader"],
-    billing: ["Admin", "Accountant"],
-  };
 
   return (
     <Router>
@@ -2649,61 +2914,105 @@ function App() {
           }}
         >
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/retailers" element={<RetailerRecords />} />
+            <Route
+              path="/"
+              element={
+                <RestrictedPage
+                  pageName="Dashboard"
+                  allowedRoles={[
+                    "Admin",
+                    "manager",
+                    "staff",
+                    "CSR",
+                    "Team Leader",
+                    "Accountant",
+                    "Purchasing Officer",
+                    "Warehouse Staff",
+                  ]}
+                  component={Dashboard}
+                  userRole={user.role}
+                />
+              }
+            />
+
+            <Route
+              path="/retailers"
+              element={
+                <RestrictedPage
+                  pageName="Retailer/Supplier Records"
+                  allowedRoles={[
+                    "Admin",
+                    "manager",
+                    "staff",
+                    "CSR",
+                    "Team Leader",
+                    "Accountant",
+                    "Purchasing Officer",
+                    "Warehouse Staff",
+                  ]}
+                  component={RetailerRecords}
+                  userRole={user.role}
+                />
+              }
+            />
 
             <Route
               path="/purchasing"
               element={
-                access.purchasing.includes(user.role) ? (
-                  <Purchasing />
-                ) : (
-                  <RestrictedPage pageName="Purchasing" onValidate={validateUser} />
-                )
+                <RestrictedPage
+                  pageName="Purchasing"
+                  allowedRoles={["Admin", "Purchasing Officer"]}
+                  component={Purchasing}
+                  userRole={user.role}
+                />
               }
             />
 
             <Route
               path="/warehouse"
               element={
-                access.warehouse.includes(user.role) ? (
-                  <WarehouseOperations />
-                ) : (
-                  <RestrictedPage pageName="Warehouse Operations" onValidate={validateUser} />
-                )
+                <RestrictedPage
+                  pageName="Warehouse Operations"
+                  allowedRoles={["Admin", "Warehouse Staff"]}
+                  component={WarehouseOperations}
+                  userRole={user.role}
+                />
               }
             />
 
             <Route
               path="/itemassign"
               element={
-                access.assignments.includes(user.role) ? (
-                  <ItemAssignments />
-                ) : (
-                  <RestrictedPage pageName="Item Assignment" onValidate={validateUser} />
-                )
+                <RestrictedPage
+                  pageName="Item Assignment"
+                  allowedRoles={["Admin", "CSR"]}
+                  component={ItemAssignments}
+                  userRole={user.role}
+                />
               }
             />
 
             <Route
               path="/approvals"
               element={
-                access.approvals.includes(user.role) ? (
-                  <Approvals />
-                ) : (
-                  <RestrictedPage pageName="Approvals" onValidate={validateUser} />
-                )
+                <RestrictedPage
+                  pageName="Approvals"
+                  allowedRoles={["Admin", "Team Leader"]}
+                  component={Approvals}
+                  userRole={user.role}
+                />
               }
             />
 
             <Route
               path="/retailerandbilling"
               element={
-                access.billing.includes(user.role) ? (
-                  <RetailerAndBilling />
-                ) : (
-                  <RestrictedPage pageName="Retailer & Billing" onValidate={validateUser} />
-                )
+                <RestrictedPage
+                  pageName="Retailer & Billing"
+                  allowedRoles={["Admin", "Accountant"]}
+                  component={RetailerAndBilling}
+                  userRole={user.role}
+                />
               }
             />
           </Routes>
