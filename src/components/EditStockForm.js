@@ -1,5 +1,6 @@
-import React, { useState } from "react";
-import { Save } from "lucide-react"; // ✅ Import from lucide-react
+import React, { useState, useEffect } from "react";
+import { Save } from "lucide-react";
+import { supabase } from "../components/supabaseClient";
 
 function SearchIcon({ size = 16, color = "white" }) {
   return (
@@ -27,15 +28,78 @@ function SearchIcon({ size = 16, color = "white" }) {
   );
 }
 
-function EditStockForm({ onClose, onSave, initialData }) {
+function EditStockForm({ onClose, initialData, refreshStocks }) {
   const [item, setItem] = useState(initialData?.item || "");
   const [category, setCategory] = useState(initialData?.category || "");
+  const [quantity, setQuantity] = useState(initialData?.quantity || 0);
+  const [supplierId, setSupplierId] = useState(initialData?.supplier_id || "");
+  const [suppliers, setSuppliers] = useState([]);
 
-  const handleSubmit = (e) => {
+  // 🔹 Fetch suppliers from retailer_supplier table
+  useEffect(() => {
+    const fetchSuppliers = async () => {
+      const { data, error } = await supabase
+        .from("retailer_supplier")
+        .select("id, name, type")
+        .eq("type", "supplier"); // ✅ filter suppliers only
+
+      if (error) {
+        console.error("Error fetching suppliers:", error.message);
+      } else {
+        setSuppliers(data || []);
+      }
+    };
+
+    fetchSuppliers();
+  }, []);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (onSave) {
-      const randomQuantity = Math.floor(Math.random() * 100) + 1;
-      onSave({ item, category, quantity: randomQuantity });
+
+    if (!item || !category || !supplierId) {
+      alert("Please select item, category, and supplier");
+      return;
+    }
+
+    try {
+      if (initialData?.id) {
+        // ✅ Update existing stock
+        const { error } = await supabase
+          .from("purchasing")
+          .update({
+            supplier_id: supplierId,
+            item,
+            category,
+            quantity,
+            updated_at: new Date(),
+          })
+          .eq("id", initialData.id);
+
+        if (error) throw error;
+      } else {
+        // ✅ Insert new stock
+        const randomPO = `PO-${Math.floor(1000 + Math.random() * 9000)}`;
+
+        const { error } = await supabase.from("purchasing").insert([
+          {
+            po_number: randomPO,
+            supplier_id: supplierId,
+            item,
+            category,
+            quantity,
+            date: new Date(),
+            created_at: new Date(),
+          },
+        ]);
+
+        if (error) throw error;
+      }
+
+      if (refreshStocks) await refreshStocks(); // ✅ refresh UI after saving
+      onClose();
+    } catch (err) {
+      console.error("Error saving stock:", err.message);
+      alert("Error saving stock: " + err.message);
     }
   };
 
@@ -102,6 +166,35 @@ function EditStockForm({ onClose, onSave, initialData }) {
           onSubmit={handleSubmit}
           style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
         >
+          {/* Supplier Dropdown */}
+          <div style={{ position: "relative" }}>
+            <label>Supplier</label>
+            <select
+              value={supplierId}
+              onChange={(e) => setSupplierId(e.target.value)}
+              style={{
+                width: "100%",
+                backgroundColor: "#262C4B",
+                border: "none",
+                borderRadius: "0.5rem",
+                padding: "0.5rem",
+                color: supplierId ? "#f1f5f9" : "#94a3b8",
+                marginTop: "0.25rem",
+                appearance: "none",
+              }}
+            >
+              <option value="" disabled>
+                Select supplier...
+              </option>
+              {suppliers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            <SearchIcon />
+          </div>
+
           {/* Item Dropdown */}
           <div style={{ position: "relative" }}>
             <label>Item</label>
@@ -155,6 +248,25 @@ function EditStockForm({ onClose, onSave, initialData }) {
               <option value="Furniture">Furniture</option>
             </select>
             <SearchIcon />
+          </div>
+
+          {/* Quantity */}
+          <div>
+            <label>Quantity</label>
+            <input
+              type="number"
+              value={quantity}
+              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+              style={{
+                width: "100%",
+                backgroundColor: "#262C4B",
+                border: "none",
+                borderRadius: "0.5rem",
+                padding: "0.5rem",
+                color: "#f1f5f9",
+                marginTop: "0.25rem",
+              }}
+            />
           </div>
         </form>
       </div>

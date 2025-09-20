@@ -1,45 +1,97 @@
-// AssignmentForm.js
 import React, { useState, useEffect } from "react";
 import { FaPlus, FaMinus, FaSave, FaSearch } from "react-icons/fa";
+import { supabase } from "./supabaseClient"; // adjust this path as needed
 
-function AssignmentForm({ onSave, onClose, initialData }) {
-  const isEditMode = !!initialData;
+function AssignmentForm({ onClose }) {
+  const [orderNumber] = useState(`ORD-${Date.now()}`); // Auto-generated order number
   const [retailerId, setRetailerId] = useState("");
   const [item, setItem] = useState("");
   const [quantity, setQuantity] = useState(1);
-  const [orderNumber, setOrderNumber] = useState("");
+  const [retailerOptions, setRetailerOptions] = useState([]);
+  const [itemOptions, setItemOptions] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
-  // Sample options for dropdowns
-  const retailerOptions = ["RET-001", "RET-002", "RET-003"];
-  const itemOptions = ["Laptop", "Keyboard", "Mouse", "Monitor"];
+  const onSave = async (data) => {
+    const { error } = await supabase.from("item_assign").insert([data]);
+    return { success: !error, error };
+  };
 
+  // 🔁 Fetch retailers (where type = 'retailer')
   useEffect(() => {
-    if (isEditMode) {
-      setRetailerId(initialData.retailerId || "");
-      setItem(initialData.item || "");
-      setQuantity(initialData.quantity || 1);
-      setOrderNumber(initialData.orderNumber || "");
-    } else {
-      const randomNum = Math.floor(100 + Math.random() * 900);
-      setOrderNumber(`ORD-${randomNum}`);
-    }
-  }, [initialData, isEditMode]);
+    const fetchRetailers = async () => {
+      const { data, error } = await supabase
+        .from("retailer_supplier")
+        .select("id, name")
+        .eq("type", "retailer");
 
+      if (error) {
+        console.error("Error fetching retailers:", error);
+        return;
+      }
+      setRetailerOptions(data || []);
+    };
+
+    fetchRetailers();
+  }, []);
+
+  // 🔁 Fetch items (from purchasing table)
+  useEffect(() => {
+    const fetchItems = async () => {
+      const { data, error } = await supabase
+        .from("purchasing")
+        .select("item");
+
+      if (error) {
+        console.error("Error fetching items:", error);
+        return;
+      }
+
+      const uniqueItems = [...new Set(data.map((row) => row.item))];
+      setItemOptions(uniqueItems);
+    };
+
+    fetchItems();
+  }, []);
+
+  // ➕ Quantity Controls
   const increment = () => setQuantity((q) => q + 1);
   const decrement = () => setQuantity((q) => (q > 1 ? q - 1 : 1));
 
-  const handleSubmit = (e) => {
+  // ✅ Handle Save to Supabase
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const newAssignment = {
-      orderNumber,
-      retailerId,
+    setSaveError("");
+
+    if (!retailerId) return setSaveError("Please select a retailer.");
+    if (!item) return setSaveError("Please select an item.");
+
+    const payload = {
+      order_number: orderNumber, // use the generated order number here
+      retailer_id: retailerId,
       item,
       quantity,
-      status: isEditMode ? initialData.status : "Pending",
+      status: "Pending",
     };
-    onSave(newAssignment);
+
+    try {
+      setSaving(true);
+      const result = await onSave(payload);
+
+      if (result?.success) {
+        onClose();
+      } else {
+        const message = result?.error?.message ?? "Save failed";
+        setSaveError(message);
+      }
+    } catch (err) {
+      setSaveError(err?.message ?? String(err));
+    } finally {
+      setSaving(false);
+    }
   };
 
+  // 🎨 UI Styles
   const styles = {
     container: {
       backgroundColor: "#363B5E",
@@ -51,25 +103,10 @@ function AssignmentForm({ onSave, onClose, initialData }) {
       fontFamily: "'Inter', sans-serif",
       position: "relative",
     },
-    title: {
-      fontSize: "1.5rem",
-      fontWeight: "600",
-      marginBottom: "1rem",
-    },
-    header: {
-      fontSize: "1rem",
-      marginBottom: "1.5rem",
-      color: "#d1d5db",
-    },
-    label: {
-      display: "block",
-      marginBottom: "0.5rem",
-      fontWeight: "500",
-    },
-    inputWrapper: {
-      position: "relative",
-      marginBottom: "1.5rem",
-    },
+    title: { fontSize: "1.5rem", fontWeight: "600", marginBottom: "1rem" },
+    header: { fontSize: "1rem", marginBottom: "1.5rem", color: "#d1d5db" },
+    label: { display: "block", marginBottom: "0.5rem", fontWeight: "500" },
+    inputWrapper: { position: "relative", marginBottom: "1.5rem" },
     select: {
       width: "100%",
       padding: "0.8rem 1rem",
@@ -88,14 +125,9 @@ function AssignmentForm({ onSave, onClose, initialData }) {
       background: "none",
       border: "none",
       color: "#ffffff",
-      cursor: "pointer",
       pointerEvents: "none",
     },
-    quantityContainer: {
-      display: "flex",
-      alignItems: "center",
-      gap: "0.5rem",
-    },
+    quantityContainer: { display: "flex", alignItems: "center", gap: "0.5rem" },
     quantityButton: {
       backgroundColor: "#4c4f7a",
       color: "#ffffff",
@@ -114,14 +146,13 @@ function AssignmentForm({ onSave, onClose, initialData }) {
       border: "none",
       borderRadius: "6px",
       padding: "0.5rem 1rem",
-      cursor: "pointer",
+      cursor: saving ? "not-allowed" : "pointer",
       display: "flex",
       alignItems: "center",
       fontWeight: "600",
+      opacity: saving ? 0.7 : 1,
     },
-    saveIcon: {
-      marginRight: "6px",
-    },
+    saveIcon: { marginRight: "6px" },
     cancelButton: {
       position: "absolute",
       top: "1rem",
@@ -134,36 +165,37 @@ function AssignmentForm({ onSave, onClose, initialData }) {
       cursor: "pointer",
       fontWeight: "600",
     },
+    errorText: { color: "#ffb4b4", marginTop: "0.5rem" },
   };
 
   return (
     <form style={styles.container} onSubmit={handleSubmit}>
-      {/* Save / Cancel Buttons */}
-      <button type="submit" style={styles.saveButton}>
-        <FaSave style={styles.saveIcon} />
-        Save
+      <button type="button" style={styles.cancelButton} onClick={onClose}>
+        Cancel
       </button>
 
-      {/* Header */}
-      <h3 style={styles.header}>Add Assignment of Items to the Retailers</h3>
-      <h2 style={styles.title}>
-        {"Auto-Generated Order Number..."}
-      </h2>
+      <button type="submit" style={styles.saveButton} disabled={saving}>
+        <FaSave style={styles.saveIcon} />
+        {saving ? "Saving..." : "Save"}
+      </button>
 
-      {/* Retailer ID Dropdown */}
+      <h3 style={styles.header}>Add Assignment</h3>
+      <h2 style={styles.title}>Order Number: {orderNumber}</h2>
+
+      {/* Retailer Dropdown */}
       <div style={styles.inputWrapper}>
-        <label style={styles.label}>Retailer ID</label>
+        <label style={styles.label}>Retailer</label>
         <select
           value={retailerId}
           onChange={(e) => setRetailerId(e.target.value)}
           style={styles.select}
         >
           <option value="" disabled>
-            Search...
+            Select Retailer...
           </option>
-          {retailerOptions.map((ret) => (
-            <option key={ret} value={ret}>
-              {ret}
+          {retailerOptions.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name ?? r.id}
             </option>
           ))}
         </select>
@@ -181,7 +213,7 @@ function AssignmentForm({ onSave, onClose, initialData }) {
           style={styles.select}
         >
           <option value="" disabled>
-            Search...
+            Select Item...
           </option>
           {itemOptions.map((itm) => (
             <option key={itm} value={itm}>
@@ -194,7 +226,7 @@ function AssignmentForm({ onSave, onClose, initialData }) {
         </span>
       </div>
 
-      {/* Quantity */}
+      {/* Quantity Control */}
       <div style={styles.inputWrapper}>
         <label style={styles.label}>Quantity</label>
         <div style={styles.quantityContainer}>
@@ -206,6 +238,7 @@ function AssignmentForm({ onSave, onClose, initialData }) {
             <FaPlus />
           </button>
         </div>
+        {saveError && <div style={styles.errorText}>{saveError}</div>}
       </div>
     </form>
   );

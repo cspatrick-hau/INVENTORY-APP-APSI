@@ -2,12 +2,12 @@ import React, { useState } from "react";
 import { AlignJustify, Check } from "lucide-react";
 
 export default function EditInvoiceForm({ billing, onClose, onUpdateStatus }) {
-  const [step, setStep] = useState("view"); // view | charge | confirmCharge | confirmPaid
+  const [step, setStep] = useState("view"); // view | charge
 
-  const handleChargeClick = () => setStep("confirmCharge");
-  const confirmCharge = () => setStep("charge");
-  const handleMarkAsPaid = () => setStep("confirmPaid");
-  const confirmPaid = () => {
+  const handleChargeClick = () => setStep("charge");
+
+  const handleMarkAsPaid = () => {
+    // ✅ Only update THIS invoice
     onUpdateStatus(billing.id, "Paid");
     onClose();
   };
@@ -83,15 +83,15 @@ export default function EditInvoiceForm({ billing, onClose, onUpdateStatus }) {
               rowGap: "0.75rem",
             }}
           >
-            <strong>Invoice Number:</strong> <span>{billing.invoiceNumber}</span>
-            <strong>Order Number:</strong> <span>{billing.orderNumber}</span>
+            <strong>Invoice ID:</strong> <span>{billing.invoice_id}</span>
+            <strong>Order Number:</strong> <span>{billing.order_number}</span>
             <strong>Date:</strong> <span>{billing.date}</span>
 
-            <strong>Retailer ID:</strong> <span>{billing.retailerId}</span>
+            <strong>Retailer ID:</strong> <span>{billing.retailer_id}</span>
             <strong>Retailer Name:</strong> <span>{billing.retailerName}</span>
-            <strong>Address:</strong> <span>{billing.address}</span>
             <strong>Email:</strong> <span>{billing.email}</span>
             <strong>Contact:</strong> <span>{billing.contact}</span>
+            <strong>Address:</strong> <span>{billing.address}</span>
 
             <strong>Item:</strong> <span>{billing.item}</span>
             <strong>Quantity:</strong> <span>{billing.quantity}</span>
@@ -145,7 +145,6 @@ export default function EditInvoiceForm({ billing, onClose, onUpdateStatus }) {
               </button>
             )}
 
-
             {step === "charge" && (
               <button
                 onClick={handleMarkAsPaid}
@@ -166,176 +165,9 @@ export default function EditInvoiceForm({ billing, onClose, onUpdateStatus }) {
                 Mark as Paid
               </button>
             )}
-
           </div>
         </div>
       </div>
-
-      {/* Confirm Charge Popup */}
-      {step === "confirmCharge" && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            backgroundColor: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
-          onClick={() => setStep("view")}
-        >
-          <div
-            style={{
-              backgroundColor: "#fff",
-              borderRadius: "0.75rem",
-              padding: "2rem",
-              width: "400px",
-              position: "relative",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Top-left small header */}
-            <div
-              style={{
-                position: "absolute",
-                top: "0.75rem",
-                left: "1rem",
-                fontSize: "0.85rem",
-                fontWeight: "600",
-                color: "#1e293b",
-              }}
-            >
-              Status Changes
-            </div>
-
-            {/* Main content */}
-            <p
-              style={{
-                marginTop: "2rem",
-                marginBottom: "1.5rem",
-                color: "#1e293b",
-                textAlign: "center",
-              }}
-            >
-              <b>Are you sure you want to charge this retailer?</b>
-            </p>
-            <div style={{ display: "flex", justifyContent: "center", gap: "1rem" }}>
-              <button
-                onClick={confirmCharge}
-                style={{
-                  backgroundColor: "#B3FFA6",
-                  color: "#0E5F00",
-                  border: "none",
-                  borderRadius: "0.5rem",
-                  padding: "0.5rem 1rem",
-                }}
-              >
-                Yes
-              </button>
-              <button
-                onClick={() => setStep("view")}
-                style={{
-                  backgroundColor: "#FF8686",
-                  color: "#A50A0A",
-                  border: "none",
-                  borderRadius: "0.5rem",
-                  padding: "0.5rem 1rem",
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-
-      {/* Confirm Paid Popup */}
-      {step === "confirmPaid" && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            backgroundColor: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
-          onClick={() => setStep("charge")}
-        >
-          <div
-            style={{
-              backgroundColor: "#fff",
-              borderRadius: "0.75rem",
-              padding: "2rem",
-              width: "400px",
-              position: "relative",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Top-left small header */}
-            <div
-              style={{
-                position: "absolute",
-                top: "0.75rem",
-                left: "1rem",
-                fontSize: "0.85rem",
-                fontWeight: "600",
-                color: "#1e293b",
-              }}
-            >
-              Status Changes
-            </div>
-
-            {/* Main content */}
-            <p
-              style={{
-                marginTop: "2rem",
-                marginBottom: "1.5rem",
-                color: "#1e293b",
-                textAlign: "center",
-              }}
-            >
-              <b>Confirm Payment for this Order?</b>
-            </p>
-            <div style={{ display: "flex", justifyContent: "center", gap: "1rem" }}>
-              <button
-                onClick={confirmPaid}
-                style={{
-                  backgroundColor: "#B3FFA6",
-                  color: "#0E5F00",
-                  border: "none",
-                  borderRadius: "0.5rem",
-                  padding: "0.5rem 1rem",
-                }}
-              >
-                Confirm
-              </button>
-              <button
-                onClick={() => setStep("charge")}
-                style={{
-                  backgroundColor: "#FF8686",
-                  color: "#A50A0A",
-                  border: "none",
-                  borderRadius: "0.5rem",
-                  padding: "0.5rem 1rem",
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

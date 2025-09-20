@@ -1,40 +1,97 @@
 import React, { useState, useEffect } from "react";
-import { X, Save, Plus, Minus } from "lucide-react";
+import { X, Save } from "lucide-react";
+import { supabase } from "./supabaseClient"; // ✅ correct path
+
+const categories = [
+  { name: "Fashion & Apparel" },
+  { name: "Groceries & Household Supplies" },
+  { name: "Pet Supplies" },
+  { name: "Sports & Outdoors" },
+  { name: "Automotive" },
+  { name: "Hobbies & Collectibles" },
+  { name: "Health & Beauty" },
+  { name: "Home & Living" },
+  { name: "Electronics & Gadgets" },
+  { name: "Baby & Kids Essentials" },
+];
 
 function AddPurchaseForm({ onClose, onSave, initialData }) {
   const [supplierId, setSupplierId] = useState("");
   const [item, setItem] = useState("");
-  const [category, setCategory] = useState("Auto-Assigned Category");
+  const [category, setCategory] = useState("Fashion & Apparel");
   const [quantity, setQuantity] = useState(1);
   const [receivingStatus, setReceivingStatus] = useState("Pending");
   const [paymentStatus, setPaymentStatus] = useState("Unpaid");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [suppliers, setSuppliers] = useState([]);
 
+  // ✅ Prefill form when editing
   useEffect(() => {
     if (initialData) {
-      setSupplierId(initialData.supplierId || "");
+      setSupplierId(initialData.supplier_id || "");
       setItem(initialData.item || "");
-      setCategory(initialData.category || "Auto-Assigned Category");
+      setCategory(initialData.category || "Fashion & Apparel");
       setQuantity(initialData.quantity || 1);
-      setReceivingStatus(initialData.receivingStatus || "Pending");
-      setPaymentStatus(initialData.paymentStatus || "Unpaid");
+      setReceivingStatus(initialData.receiving_status || "Pending");
+      setPaymentStatus(initialData.payment_status || "Unpaid");
     }
   }, [initialData]);
 
-  const handleSave = () => {
+  // ✅ Fetch suppliers (only those with type = supplier)
+  useEffect(() => {
+    const fetchSuppliers = async () => {
+      const { data, error } = await supabase
+        .from("retailer_supplier")
+        .select("id, name, type")
+        .eq("type", "supplier");
+
+      if (error) {
+        console.error("Error fetching suppliers:", error.message);
+      } else {
+        setSuppliers(data || []);
+      }
+    };
+
+    fetchSuppliers();
+  }, []);
+
+  const handleSave = async () => {
+    setLoading(true);
+    setError("");
+
     const newOrder = {
-      poNumber: initialData?.poNumber || `PO-${Date.now()}`,
-      supplierId,
+      po_number: initialData?.po_number || `PO-${Date.now()}`,
+      supplier_id: supplierId,
       item,
       category,
       quantity,
-      total: quantity * 100,
-      date: initialData?.date || new Date().toLocaleDateString(),
-      receivingStatus,
-      paymentStatus,
+      total: quantity * 100, 
+      date: initialData?.date || new Date().toISOString().split("T")[0],
+      receiving_status: receivingStatus,
+      payment_status: paymentStatus,
     };
 
-    if (onSave) {
-      onSave(newOrder);
+    try {
+      let result;
+      if (initialData) {
+        result = await supabase
+          .from("purchasing")
+          .update(newOrder)
+          .eq("id", initialData.id); // ✅ safer to use id
+      } else {
+        result = await supabase.from("purchasing").insert([newOrder]);
+      }
+
+      if (result.error) throw result.error;
+
+      if (onSave) onSave(); // ✅ trigger refresh, no duplicate insert
+      onClose();
+    } catch (err) {
+      console.error("Error saving order:", err.message);
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -72,6 +129,7 @@ function AddPurchaseForm({ onClose, onSave, initialData }) {
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <button
               onClick={handleSave}
+              disabled={loading}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -82,9 +140,10 @@ function AddPurchaseForm({ onClose, onSave, initialData }) {
                 borderRadius: "0.5rem",
                 padding: "0.5rem 1rem",
                 cursor: "pointer",
+                opacity: loading ? 0.6 : 1,
               }}
             >
-              <Save size={16} /> Save
+              <Save size={16} /> {loading ? "Saving..." : "Save"}
             </button>
             <button
               onClick={onClose}
@@ -102,9 +161,11 @@ function AddPurchaseForm({ onClose, onSave, initialData }) {
           </div>
         </div>
 
-        {/* Supplier ID */}
+        {error && <div style={{ color: "red", marginBottom: "1rem" }}>{error}</div>}
+
+        {/* Supplier Dropdown */}
         <div style={{ position: "relative", marginBottom: "1rem" }}>
-          <label>Supplier ID</label>
+          <label>Supplier</label>
           <select
             value={supplierId}
             onChange={(e) => setSupplierId(e.target.value)}
@@ -113,161 +174,77 @@ function AddPurchaseForm({ onClose, onSave, initialData }) {
               backgroundColor: "#262C4B",
               border: "none",
               borderRadius: "0.5rem",
-              padding: "0.5rem 2rem 0.5rem 0.5rem",
+              padding: "0.5rem",
               color: supplierId ? "#f1f5f9" : "#94a3b8",
-              appearance: "none",
             }}
           >
-            <option value="" disabled>
-              Search..
-            </option>
-            <option value="SUP-001">SUP-001</option>
-            <option value="SUP-002">SUP-002</option>
-            <option value="SUP-003">SUP-003</option>
+            <option value="">-- Select Supplier --</option>
+            {suppliers.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
           </select>
-
-          {/* Search icon */}
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="30"
-            height="25"
-            fill="none"
-            stroke="white"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{
-              position: "absolute",
-              right: "10px",
-              top: "65%",
-              transform: "translateY(-50%)",
-              pointerEvents: "none",
-            }}
-            className="lucide lucide-search"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
         </div>
 
         {/* Item */}
-        <div style={{ position: "relative", marginBottom: "1rem" }}>
+        <div style={{ marginBottom: "1rem" }}>
           <label>Item</label>
-          <select
+          <input
+            type="text"
             value={item}
             onChange={(e) => setItem(e.target.value)}
+            placeholder="Enter Item Name"
             style={{
               width: "100%",
               backgroundColor: "#262C4B",
               border: "none",
               borderRadius: "0.5rem",
-              padding: "0.5rem 2rem 0.5rem 0.5rem",
-              color: item ? "#f1f5f9" : "#94a3b8",
-              appearance: "none",
+              padding: "0.5rem",
+              color: "#f1f5f9",
             }}
-          >
-            <option value="" disabled>
-              Search..
-            </option>
-            <option value="Item A">Item A</option>
-            <option value="Item B">Item B</option>
-            <option value="Item C">Item C</option>
-          </select>
-
-          {/* Search icon */}
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="30"
-            height="25"
-            fill="none"
-            stroke="white"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{
-              position: "absolute",
-              right: "10px",
-              top: "65%",
-              transform: "translateY(-50%)",
-              pointerEvents: "none",
-            }}
-            className="lucide lucide-search"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
+          />
         </div>
 
-        {/* Category + Quantity */}
+        {/* Category Dropdown + Quantity */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
           <div>
             <label>Category</label>
-            <input
-              type="text"
+            <select
               value={category}
-              disabled
+              onChange={(e) => setCategory(e.target.value)}
               style={{
-                width: "97%",
+                width: "100%",
                 backgroundColor: "#262C4B",
                 border: "none",
                 borderRadius: "0.5rem",
                 padding: "0.5rem",
-                color: "#94a3b8",
+                color: "#f1f5f9",
               }}
-            />
+            >
+              {categories.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>
             <label>Quantity</label>
-            <div
+            <input
+              type="number"
+              value={quantity}
+              onChange={(e) => setQuantity(Number(e.target.value))}
               style={{
-                display: "flex",
-                alignItems: "center",
-                border: "1px solid #475569",
+                width: "100%",
+                backgroundColor: "#262C4B",
+                border: "none",
                 borderRadius: "0.5rem",
                 padding: "0.5rem",
-                backgroundColor: "#262C4B",
+                color: "#f1f5f9",
               }}
-            >
-              <input
-                type="text"
-                value={quantity}
-                readOnly
-                style={{
-                  flex: 1,
-                  background: "transparent",
-                  border: "none",
-                  outline: "none",
-                  color: "#fff",
-                  fontSize: "0.9rem",
-                  textAlign: "center",
-                }}
-              />
-              <button
-                onClick={() => setQuantity(quantity > 1 ? quantity - 1 : 1)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "#fff",
-                  cursor: "pointer",
-                  marginLeft: "0.5rem",
-                }}
-              >
-                <Minus size={16} />
-              </button>
-              <button
-                onClick={() => setQuantity(quantity + 1)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "#fff",
-                  cursor: "pointer",
-                  marginLeft: "0.25rem",
-                }}
-              >
-                <Plus size={16} />
-              </button>
-            </div>
+            />
           </div>
         </div>
 

@@ -1,9 +1,10 @@
 // src/Login.js
 import React, { useState } from "react";
+import { supabase } from "./supabaseClient";
 
-function Login({ onLogin, onRegister, users }) {
+function Login({ onLogin }) {
   const [page, setPage] = useState("welcome"); // "welcome" | "login" | "register"
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(""); // email
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
@@ -13,19 +14,44 @@ function Login({ onLogin, onRegister, users }) {
   const [role, setRole] = useState("");
   const [registerStep, setRegisterStep] = useState(1);
 
-  const handleLogin = (e) => {
+  // --- Login with Supabase ---
+  const handleLogin = async (e) => {
     e.preventDefault();
-    const foundUser = users.find(
-      (u) => u.username === username && u.password === password
-    );
-    if (foundUser) {
-      onLogin(foundUser); // pass full user object to App.js
-      setError(""); // clear error on success
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: username,
+      password: password,
+    });
+
+    if (error) {
+      if (error.message.includes("Email not confirmed")) {
+        setError("Please confirm your email before logging in.");
+      } else {
+        setError(error.message);
+      }
     } else {
-      setError("Invalid username or password.");
+      setError("");
+
+      // ✅ Fetch role from your "login" table
+      const { data: profile, error: profileError } = await supabase
+        .from("login")
+        .select("roles")
+        .eq("email", username)
+        .maybeSingle();
+
+      if (profileError) {
+        console.error("Role fetch error:", profileError.message);
+        setError("Could not fetch role.");
+        return;
+      }
+
+      const userRole = profile?.roles || null;
+
+      // ✅ Pass both user + role back to App.js
+      onLogin({ user: data.user, role: userRole });
     }
   };
 
+  // --- Step 1 Register (name + role) ---
   const handleRegisterStep1 = (e) => {
     e.preventDefault();
     if (!fullName || !role) {
@@ -36,7 +62,8 @@ function Login({ onLogin, onRegister, users }) {
     setRegisterStep(2);
   };
 
-  const handleRegisterSubmit = (e) => {
+  // --- Step 2 Register (account) ---
+  const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     if (!username || !password || !confirmPassword) {
       setError("All fields are required.");
@@ -46,18 +73,47 @@ function Login({ onLogin, onRegister, users }) {
       setError("Passwords Do Not Match. Try Again.");
       return;
     }
-    onRegister({ name: fullName, username, password, role });
-    // Reset form
-    setFullName("");
-    setRole("");
-    setUsername("");
-    setPassword("");
-    setConfirmPassword("");
-    setRegisterStep(1);
-    setError("");
-    setPage("login"); // go back to login after successful registration
+
+    // 1. Create user in Supabase Auth
+    const { data, error } = await supabase.auth.signUp({
+      email: username,
+      password: password,
+      options: {
+        data: { fullName, role },
+      },
+    });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      // 2. Insert into your "login" table
+      const { error: insertError } = await supabase.from("login").insert([
+        {
+          username: fullName, // full name
+          roles: role,        // role
+          email: username,    // email
+        },
+      ]);
+
+      if (insertError) {
+        console.error("Insert into table failed:", insertError.message);
+        setError(`Table insert failed: ${insertError.message}`);
+      } else {
+        console.log("User added to login table successfully!");
+        setError("");
+        // Reset form
+        setFullName("");
+        setRole("");
+        setUsername("");
+        setPassword("");
+        setConfirmPassword("");
+        setRegisterStep(1);
+        setPage("login");
+      }
+    }
   };
 
+  // --- Styling ---
   const wrapperStyle = {
     display: "flex",
     justifyContent: "center",
@@ -76,7 +132,7 @@ function Login({ onLogin, onRegister, users }) {
     boxShadow: "0px 4px 15px rgba(0,0,0,0.3)",
   };
 
-  // --- Welcome Page ---
+  // --- Pages ---
   if (page === "welcome") {
     return (
       <div style={wrapperStyle}>
@@ -84,7 +140,6 @@ function Login({ onLogin, onRegister, users }) {
           <h2 style={{ marginBottom: "1.5rem" }}>
             Welcome to ASCDC <br /> Inventory System!
           </h2>
-
           <button
             onClick={() => setPage("login")}
             style={{
@@ -100,7 +155,6 @@ function Login({ onLogin, onRegister, users }) {
           >
             LOG IN
           </button>
-
           <button
             onClick={() => setPage("register")}
             style={{
@@ -120,7 +174,6 @@ function Login({ onLogin, onRegister, users }) {
     );
   }
 
-  // --- Login Page ---
   if (page === "login") {
     return (
       <div style={wrapperStyle}>
@@ -129,7 +182,6 @@ function Login({ onLogin, onRegister, users }) {
             ASCDC Inventory System
           </h4>
           <h2 style={{ marginBottom: "1rem" }}>Log In</h2>
-
           {error && (
             <div
               style={{
@@ -147,13 +199,12 @@ function Login({ onLogin, onRegister, users }) {
               {error}
             </div>
           )}
-
           <form onSubmit={handleLogin}>
             <div style={{ textAlign: "left", marginBottom: "1rem" }}>
-              <label>Username</label>
+              <label>Email</label>
               <input
-                type="text"
-                placeholder="Enter your username"
+                type="email"
+                placeholder="Enter your email"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 style={{
@@ -165,7 +216,6 @@ function Login({ onLogin, onRegister, users }) {
                 }}
               />
             </div>
-
             <div style={{ textAlign: "left", marginBottom: "1rem" }}>
               <label>Password</label>
               <input
@@ -182,7 +232,6 @@ function Login({ onLogin, onRegister, users }) {
                 }}
               />
             </div>
-
             <button
               type="submit"
               style={{
@@ -199,7 +248,6 @@ function Login({ onLogin, onRegister, users }) {
               LOG IN
             </button>
           </form>
-
           <button
             onClick={() => setPage("welcome")}
             style={{
@@ -218,7 +266,6 @@ function Login({ onLogin, onRegister, users }) {
     );
   }
 
-  // --- Register Page ---
   if (page === "register") {
     return (
       <div style={wrapperStyle}>
@@ -227,7 +274,6 @@ function Login({ onLogin, onRegister, users }) {
             ASCDC Inventory System
           </h4>
           <h2 style={{ marginBottom: "1rem" }}>Register</h2>
-
           {error && (
             <div
               style={{
@@ -245,7 +291,6 @@ function Login({ onLogin, onRegister, users }) {
               {error}
             </div>
           )}
-
           {registerStep === 1 && (
             <form onSubmit={handleRegisterStep1}>
               <div style={{ marginBottom: "1rem", textAlign: "left" }}>
@@ -263,7 +308,6 @@ function Login({ onLogin, onRegister, users }) {
                   }}
                 />
               </div>
-
               <div style={{ marginBottom: "1rem", textAlign: "left" }}>
                 <label>Role</label>
                 <select
@@ -284,7 +328,6 @@ function Login({ onLogin, onRegister, users }) {
                   <option value="Accountant">Accountant</option>
                 </select>
               </div>
-
               <button
                 type="submit"
                 style={{
@@ -302,13 +345,12 @@ function Login({ onLogin, onRegister, users }) {
               </button>
             </form>
           )}
-
           {registerStep === 2 && (
             <form onSubmit={handleRegisterSubmit}>
               <div style={{ marginBottom: "1rem", textAlign: "left" }}>
-                <label>Username / Email</label>
+                <label>Email</label>
                 <input
-                  type="text"
+                  type="email"
                   placeholder="Enter your email"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
@@ -320,7 +362,6 @@ function Login({ onLogin, onRegister, users }) {
                   }}
                 />
               </div>
-
               <div style={{ marginBottom: "1rem", textAlign: "left" }}>
                 <label>Password</label>
                 <input
@@ -336,7 +377,6 @@ function Login({ onLogin, onRegister, users }) {
                   }}
                 />
               </div>
-
               <div style={{ marginBottom: "1rem", textAlign: "left" }}>
                 <label>Confirm Password</label>
                 <input
@@ -352,7 +392,6 @@ function Login({ onLogin, onRegister, users }) {
                   }}
                 />
               </div>
-
               <button
                 type="submit"
                 style={{
@@ -370,7 +409,6 @@ function Login({ onLogin, onRegister, users }) {
               </button>
             </form>
           )}
-
           <button
             onClick={() => {
               setPage("welcome");

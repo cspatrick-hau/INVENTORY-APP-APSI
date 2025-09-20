@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { X, Save } from "lucide-react";
+import { supabase } from "../components/supabaseClient"; // ✅ adjust path if needed
 
-function EditOutboundForm({ onClose, onSave, initialData }) {
+function EditOutboundForm({ onClose, initialData, refreshOutbound }) {
   const [status, setStatus] = useState("Packed");
 
   useEffect(() => {
@@ -10,12 +11,25 @@ function EditOutboundForm({ onClose, onSave, initialData }) {
     }
   }, [initialData]);
 
-  const handleSave = () => {
-    const updatedOrder = {
-      ...initialData,
-      status,
-    };
-    onSave(updatedOrder);
+  const handleSave = async () => {
+    if (!initialData?.id) {
+      console.error("Missing outbound order ID");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("warehouse_operations")
+      .update({ status })
+      .eq("id", initialData.id);
+
+    if (error) {
+      console.error("Error updating outbound order:", error);
+    } else {
+      if (refreshOutbound) {
+        await refreshOutbound(); // ✅ re-fetch outbound orders
+      }
+      onClose(); // ✅ close modal after saving
+    }
   };
 
   return (
@@ -83,7 +97,7 @@ function EditOutboundForm({ onClose, onSave, initialData }) {
             color: "#fff",
           }}
         >
-          {"Auto-Generated Order Number..."}
+          {initialData?.orderNumber || "Auto-Generated Order Number..."}
         </h4>
 
         {/* Retailer ID */}

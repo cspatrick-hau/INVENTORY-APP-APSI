@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, Save, Plus, Minus } from "lucide-react";
+import { supabase } from "../components/supabaseClient"; // ✅ import supabase
 
 function EditInboundForm({ onClose, onSave, initialData }) {
   const [quantity, setReceivedQty] = useState(0);
@@ -27,17 +28,36 @@ function EditInboundForm({ onClose, onSave, initialData }) {
     }
   }, [initialData]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const updatedOrder = {
-      ...initialData,
-      poNumber,
-      quantity,
+      po_number: poNumber,
+      received_quantity: quantity,
       damaged,
       spoiled,
       missing,
       rejected,
     };
-    onSave(updatedOrder);
+
+    let result;
+    if (initialData?.id) {
+      // ✅ Update existing record
+      result = await supabase
+        .from("warehouse_operations")
+        .update(updatedOrder)
+        .eq("id", initialData.id);
+    } else {
+      // ✅ Insert new record
+      result = await supabase
+        .from("warehouse_operations")
+        .insert([{ ...updatedOrder, operation_type: "Inbound" }]);
+    }
+
+    if (result.error) {
+      console.error("Error saving inbound order:", result.error);
+    } else {
+      onSave(updatedOrder); // still update local state in parent
+      onClose(); // close form after save
+    }
   };
 
   const CounterInput = ({ label, value, setValue, width = "100%" }) => (
@@ -112,6 +132,7 @@ function EditInboundForm({ onClose, onSave, initialData }) {
           color: "#fff",
         }}
       >
+        {/* Header */}
         <div
           style={{
             display: "flex",
@@ -121,7 +142,7 @@ function EditInboundForm({ onClose, onSave, initialData }) {
           }}
         >
           <h2 style={{ fontSize: "1.25rem", fontWeight: "600" }}>
-            Edit Inbound Details
+            {initialData?.id ? "Edit Inbound Details" : "Add Inbound Order"}
           </h2>
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <button
@@ -155,6 +176,8 @@ function EditInboundForm({ onClose, onSave, initialData }) {
             </button>
           </div>
         </div>
+
+        {/* Form */}
         <h4
           style={{
             fontSize: "2.5rem",
@@ -163,14 +186,14 @@ function EditInboundForm({ onClose, onSave, initialData }) {
             color: "#ffffffff",
           }}
         >
-          Auto-Generated Purchase Order Number...
+          PO Number: {poNumber}
         </h4>
 
         <div style={{ marginBottom: "1rem" }}>
           <label>Supplier ID</label>
           <input
             type="text"
-            value={initialData?.supplierId || "Auto-Assigned Supplier ID"}
+            value={initialData?.supplierId || ""}
             disabled
             style={{
               width: "100%",
@@ -187,7 +210,7 @@ function EditInboundForm({ onClose, onSave, initialData }) {
           <label>Item</label>
           <input
             type="text"
-            value={initialData?.item || "Auto-Assigned Item"}
+            value={initialData?.item || ""}
             disabled
             style={{
               width: "100%",
@@ -199,6 +222,7 @@ function EditInboundForm({ onClose, onSave, initialData }) {
             }}
           />
         </div>
+
         <div
           style={{
             display: "grid",
@@ -211,7 +235,7 @@ function EditInboundForm({ onClose, onSave, initialData }) {
             <label>Ordered Quantity</label>
             <input
               type="text"
-              value={initialData?.quantity || "Auto-Assigned Ordered Qty"}
+              value={initialData?.orderedquantity || ""}
               disabled
               style={{
                 width: "100%",
@@ -231,7 +255,6 @@ function EditInboundForm({ onClose, onSave, initialData }) {
           />
         </div>
 
-        {/* Editable Counters */}
         <div
           style={{
             display: "grid",

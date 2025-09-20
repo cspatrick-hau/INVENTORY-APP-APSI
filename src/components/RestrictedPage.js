@@ -1,115 +1,44 @@
-import React, { useState } from "react";
+import React from "react";
 
-function RestrictedPage({ pageName, onValidate }) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+function RestrictedPage({ pageName, allowedRoles = [], component: Component, userRole }) {
+  // Normalize roles for comparison
+  const normalizedRole = String(userRole || "").trim().toLowerCase();
+  const allowed = allowedRoles.map((r) => r.trim().toLowerCase());
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const success = onValidate(username, password);
-    if (!success) {
-      setError("Invalid Log In Credentials. Try Again.");
-    } else {
-      setError("");
-    }
-  };
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        height: "100%",
-      }}
-    >
+  // If role not allowed → deny access
+  if (!allowed.includes(normalizedRole)) {
+    return (
       <div
         style={{
-          background: "#2f3453",
-          padding: "2rem",
-          borderRadius: "0.75rem",
-          width: "420px",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100%",
           color: "#fff",
           textAlign: "center",
         }}
       >
-        <h4 style={{ opacity: 0.8 }}>{pageName} Page</h4>
-        <h2 style={{ marginBottom: "1rem" }}>
-          This page is restricted.
-          <br /> Kindly log in to continue.
-        </h2>
-
-        {/* Error message right under the header */}
-        {error && (
-          <div
-            style={{
-              background: "#fca5a5",
-              border: "1px solid #f87171",
-              borderRadius: "0.25rem",
-              color: "#000",
-              fontSize: "0.9rem",
-              padding: "0.5rem",
-              marginBottom: "1rem",
-            }}
-          >
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: "1rem", textAlign: "left" }}>
-            <label>Email Address</label>
-            <input
-              type="text"
-              placeholder="Enter your email address"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "0.5rem",
-                borderRadius: "0.25rem",
-                border: "none",
-                marginTop: "0.25rem",
-              }}
-            />
-          </div>
-
-          <div style={{ marginBottom: "1rem", textAlign: "left" }}>
-            <label>Password</label>
-            <input
-              type="password"
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "0.5rem",
-                borderRadius: "0.25rem",
-                border: "none",
-                marginTop: "0.25rem",
-              }}
-            />
-          </div>
-
-          <button
-            type="submit"
-            style={{
-              width: "100%",
-              padding: "0.75rem",
-              background: "transparent",
-              border: "1px solid #64748b",
-              borderRadius: "0.25rem",
-              color: "#fff",
-              cursor: "pointer",
-            }}
-          >
-            LOG IN
-          </button>
-        </form>
+        <div
+          style={{
+            background: "#2f3453",
+            padding: "2rem",
+            borderRadius: "0.75rem",
+            width: "420px",
+          }}
+        >
+          <h2 style={{ marginBottom: "1rem" }}>Access Denied</h2>
+          <p>
+            You do not have permission to access <strong>{pageName}</strong>.
+            <br />
+            (Your role: {userRole || "Unknown"})
+          </p>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // If allowed → render the component
+  return Component ? <Component /> : null;
 }
 
 export default RestrictedPage;

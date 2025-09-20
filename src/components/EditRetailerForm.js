@@ -1,22 +1,23 @@
 import React, { useState } from "react";
 import { Save } from "lucide-react";
+import { supabase } from "./supabaseClient"; // adjust path
 
 function EditRetailerForm({ onSave, onClose, initialData }) {
   const [formData, setFormData] = useState(
     initialData || {
-      id: `RET-${Date.now()}`,
       name: "",
       address: "",
       email: "",
-      contact: "",
+      contact_number: "",
     }
   );
+
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
 
-    // Only allow digits in contact number
-    if (name === "contact") {
+    if (name === "contact_number") {
       if (/^\d*$/.test(value)) {
         setFormData((prev) => ({ ...prev, [name]: value }));
       }
@@ -25,9 +26,49 @@ function EditRetailerForm({ onSave, onClose, initialData }) {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onSave(formData);
+    setLoading(true);
+
+    try {
+      let error;
+
+      if (initialData?.id) {
+        // --- UPDATE ---
+        ({ error } = await supabase
+          .from("retailer_supplier")
+          .update({
+            name: formData.name,
+            address: formData.address,
+            email: formData.email,
+            contact_number: formData.contact_number,
+            type: "retailer", // ensure it always stays "retailer"
+          })
+          .eq("id", initialData.id));
+      } else {
+        // --- INSERT ---
+        ({ error } = await supabase.from("retailer_supplier").insert([
+          {
+            name: formData.name,
+            address: formData.address,
+            email: formData.email,
+            contact_number: formData.contact_number,
+            type: "retailer", // auto-set type
+          },
+        ]));
+      }
+
+      if (error) {
+        console.error("Database error:", error.message);
+        alert("❌ Failed to save retailer: " + error.message);
+      } else {
+        alert("✅ Retailer saved successfully!");
+        if (onSave) onSave(formData);
+        if (onClose) onClose();
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -69,6 +110,7 @@ function EditRetailerForm({ onSave, onClose, initialData }) {
           </h3>
           <button
             onClick={handleSubmit}
+            disabled={loading}
             style={{
               backgroundColor: "#22c55e",
               color: "#fff",
@@ -80,28 +122,15 @@ function EditRetailerForm({ onSave, onClose, initialData }) {
               display: "flex",
               alignItems: "center",
               gap: "0.25rem",
+              opacity: loading ? 0.6 : 1,
             }}
           >
-            <Save size={16} /> Save
+            <Save size={16} /> {loading ? "Saving..." : "Save"}
           </button>
         </div>
 
-        {/* Auto-generated ID */}
-        <h4
-          style={{
-            fontSize: "1.5rem",
-            fontWeight: "bold",
-            marginBottom: "2rem",
-          }}
-        >
-          {formData.id || "Auto-Generated Retailer ID..."}
-        </h4>
-
         {/* Form */}
-        <form
-          onSubmit={handleSubmit}
-          style={{ display: "grid", gap: "1.5rem" }}
-        >
+        <form onSubmit={handleSubmit} style={{ display: "grid", gap: "1.5rem" }}>
           {/* Retailer Name */}
           <div>
             <label style={{ display: "block", marginBottom: "0.5rem" }}>
@@ -113,6 +142,7 @@ function EditRetailerForm({ onSave, onClose, initialData }) {
               value={formData.name}
               placeholder="Input..."
               onChange={handleChange}
+              required
               style={{
                 width: "100%",
                 padding: "0.75rem",
@@ -135,6 +165,7 @@ function EditRetailerForm({ onSave, onClose, initialData }) {
               value={formData.address}
               placeholder="Input..."
               onChange={handleChange}
+              required
               style={{
                 width: "100%",
                 padding: "0.75rem",
@@ -157,6 +188,7 @@ function EditRetailerForm({ onSave, onClose, initialData }) {
               value={formData.email}
               placeholder="Input..."
               onChange={handleChange}
+              required
               style={{
                 width: "100%",
                 padding: "0.75rem",
@@ -168,17 +200,18 @@ function EditRetailerForm({ onSave, onClose, initialData }) {
             />
           </div>
 
-          {/* Contact (only numbers) */}
+          {/* contact_number */}
           <div>
             <label style={{ display: "block", marginBottom: "0.5rem" }}>
               Contact Number
             </label>
             <input
               type="text"
-              name="contact"
-              value={formData.contact}
+              name="contact_number"
+              value={formData.contact_number}
               placeholder="Input..."
               onChange={handleChange}
+              required
               style={{
                 width: "100%",
                 padding: "0.75rem",
